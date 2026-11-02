@@ -10,27 +10,9 @@ import pytest
 
 from app.checks.priceCheck import runPriceCheck
 from app.schemas.listing import ListingSubmission
-from app.services.marketRents import MarketRent, maxHudBedrooms
+from tests.fakes import FakeMarketRentProvider
 
 description = "Apartment available now near shops, parks, and public transit."
-
-
-class FakeMarketRentProvider:
-    def __init__(self, rentsByBedrooms: dict[int, int] | None = None, zipCode: str = "90001"):
-        self.zipCode = zipCode
-        self.rentsByBedrooms = rentsByBedrooms if rentsByBedrooms is not None else {
-            0: 120000, 1: 150000, 2: 200000, 3: 260000, 4: 300000,
-        }
-
-    @property
-    def isLoaded(self) -> bool:
-        return len(self.rentsByBedrooms) > 0
-
-    def getMarketRent(self, zipCode: str, bedrooms: int) -> MarketRent | None:
-        cappedBedrooms = min(bedrooms, maxHudBedrooms)
-        if zipCode != self.zipCode or cappedBedrooms not in self.rentsByBedrooms:
-            return None
-        return MarketRent(zipCode, cappedBedrooms, self.rentsByBedrooms[cappedBedrooms], 2027, "hud_safmr")
 
 
 def priceOutcome(monthlyRent: str | None = "2000", bedrooms: int | None = 2, zipCode: str | None = "90001",

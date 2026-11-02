@@ -3,13 +3,26 @@ Tests for the HTTP layer: /health and POST /analyze.
 
 TestClient sends real HTTP requests to the app in memory, without
 starting uvicorn, so these run fast and need no network.
+
+Every test here uses fake market rent data (typical 2BR in 91101 is
+$2,000), so results never depend on the real HUD file on disk.
 """
 
 from fastapi.testclient import TestClient
+import pytest
 
 from app.main import app
+from app.services.marketRents import getMarketRentProvider
+from tests.fakes import FakeMarketRentProvider
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def useFakeMarketData():
+    app.dependency_overrides[getMarketRentProvider] = lambda: FakeMarketRentProvider(zipCode="91101")
+    yield
+    app.dependency_overrides.clear()
 
 validListing = {
     "title": "2BR apartment",
@@ -60,24 +73,16 @@ def testObviousScamListingIsHighRisk():
     assert signalPoints == sorted(signalPoints, reverse=True)
 
 
-def testCleanListingHasNoTextSignals():
+def testCleanListingHasNoSignals():
     body = client.post("/analyze", json=validListing).json()
     assert body["signals"] == []
     assert body["riskLevel"] == "low"
+    assert {"price", "text"} <= set(body["checksRun"])
 
 
-def testPriceCheckRunsWithInjectedMarketData():
-    """FastAPI dependency override swaps in fake HUD data for this test only."""
-    from app.services.marketRents import getMarketRentProvider
-    from tests.test_priceCheck import FakeMarketRentProvider
-
-    app.dependency_overrides[getMarketRentProvider] = lambda: FakeMarketRentProvider(zipCode="91101")
-    try:
-        cheapListing = {**validListing, "monthlyRent": "800"}  # fake typical 2BR is $2,000
-        body = client.post("/analyze", json=cheapListing).json()
-    finally:
-        app.dependency_overrides.clear()
-
+def testPriceCheckFlagsCheapListing():
+    cheapListing = {**validListing, "monthlyRent": "800"}  # fake typical 2BR is $2,000
+    body = client.post("/analyze", json=cheapListing).json()
     assert "price" in body["checksRun"]
     priceSignals = [signal for signal in body["signals"] if signal["checkName"] == "price"]
     assert priceSignals[0]["signalCode"] == "RENT_FAR_BELOW_MARKET"
