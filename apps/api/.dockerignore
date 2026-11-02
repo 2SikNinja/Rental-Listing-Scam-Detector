@@ -1,0 +1,18 @@
+# Files Docker should never copy into the image.
+
+# Secrets: passed in at runtime with --env-file locally, or Secret Manager
+# on Cloud Run. Never baked into the image.
+.env
+.env.*
+
+# Local environment and caches (the image builds its own .venv)
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Not needed to run the API
+tests/
+Dockerfile
+.dockerignore
+*.md
