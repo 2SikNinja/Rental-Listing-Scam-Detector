@@ -51,6 +51,8 @@ export interface AnalysisResult {
   signals: Signal[];
   checksRun: CheckName[];
   checksSkipped: CheckName[];
+  /** Why a check could not run, e.g. { price: "No ZIP code was entered." } */
+  skipReasons: Partial<Record<CheckName, string>>;
   safetyTips: string[];
   disclaimer: string;
 }

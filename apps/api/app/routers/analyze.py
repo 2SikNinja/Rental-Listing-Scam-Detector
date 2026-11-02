@@ -5,7 +5,7 @@ The router only coordinates: it runs each available check, turns the
 signals into points, and builds the response. The detection logic lives
 in app/checks/, one module per check.
 
-Step 3 status: the text check runs. The points and risk thresholds below
+Step 3 status: the text and price checks run. The points and risk thresholds below
 are a temporary stand-in. Step 4 replaces them with the scoring engine
 (app/scoring/engine.py) and tunable weights in weights.yaml, including
 an "insufficient data" result when too few checks could run.
@@ -13,10 +13,12 @@ an "insufficient data" result when too few checks could run.
 
 import uuid
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from app.checks.base import CheckOutcome
+from app.checks.priceCheck import runPriceCheck
 from app.checks.textCheck import runTextCheck
+from app.services.marketRents import MarketRentProvider, getMarketRentProvider
 from app.schemas.listing import (
     AnalysisResult,
     CheckName,
@@ -55,15 +57,24 @@ def interimRiskLevel(totalPoints: int) -> RiskLevel:
 
 
 @router.post("/analyze", response_model=AnalysisResult)
-def analyzeListing(submission: ListingSubmission) -> AnalysisResult:
+def analyzeListing(
+    submission: ListingSubmission,
+    marketRentProvider: MarketRentProvider = Depends(getMarketRentProvider),
+) -> AnalysisResult:
     """
     Analyze a pasted rental listing and return a risk assessment.
 
     FastAPI has already validated `submission` against ListingSubmission
     before this function runs. Invalid input never reaches this code; the
     client gets a 422 response that names the bad field instead.
+
+    `marketRentProvider` is supplied by FastAPI's dependency injection, so
+    tests can swap in a small fake data set.
     """
-    checkOutcomes: list[CheckOutcome] = [runTextCheck(submission)]
+    checkOutcomes: list[CheckOutcome] = [
+        runPriceCheck(submission, marketRentProvider),
+        runTextCheck(submission),
+    ]
 
     signalsOut: list[SignalOut] = []
     for outcome in checkOutcomes:
@@ -85,6 +96,11 @@ def analyzeListing(submission: ListingSubmission) -> AnalysisResult:
 
     checksRun: list[CheckName] = [outcome.checkName for outcome in checkOutcomes if outcome.ran]
     checksSkipped = [checkName for checkName in allCheckNames if checkName not in checksRun]
+    skipReasons = {
+        outcome.checkName: outcome.skipReason
+        for outcome in checkOutcomes
+        if not outcome.ran and outcome.skipReason
+    }
 
     return AnalysisResult(
         analysisId=uuid.uuid4(),
@@ -93,5 +109,6 @@ def analyzeListing(submission: ListingSubmission) -> AnalysisResult:
         signals=signalsOut,
         checksRun=checksRun,
         checksSkipped=checksSkipped,
+        skipReasons=skipReasons,
         safetyTips=generalSafetyTips,
     )

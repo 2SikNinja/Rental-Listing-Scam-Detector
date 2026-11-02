@@ -67,6 +67,10 @@ class Settings(BaseSettings):
         default="app/scoring/weights.yaml", validation_alias="SCORING_CONFIG_PATH"
     )
 
+    # Market rent data for the price check (built by scripts/loadMarketRents.py).
+    # Relative paths are resolved from apps/api/.
+    marketRentsPath: str = Field(default="data/marketRents.csv", validation_alias="MARKET_RENTS_PATH")
+
     # -----------------------------------------------------------------
     # Field-level validation
     # -----------------------------------------------------------------

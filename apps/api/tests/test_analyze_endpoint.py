@@ -66,6 +66,30 @@ def testCleanListingHasNoTextSignals():
     assert body["riskLevel"] == "low"
 
 
+def testPriceCheckRunsWithInjectedMarketData():
+    """FastAPI dependency override swaps in fake HUD data for this test only."""
+    from app.services.marketRents import getMarketRentProvider
+    from tests.test_priceCheck import FakeMarketRentProvider
+
+    app.dependency_overrides[getMarketRentProvider] = lambda: FakeMarketRentProvider(zipCode="91101")
+    try:
+        cheapListing = {**validListing, "monthlyRent": "800"}  # fake typical 2BR is $2,000
+        body = client.post("/analyze", json=cheapListing).json()
+    finally:
+        app.dependency_overrides.clear()
+
+    assert "price" in body["checksRun"]
+    priceSignals = [signal for signal in body["signals"] if signal["checkName"] == "price"]
+    assert priceSignals[0]["signalCode"] == "RENT_FAR_BELOW_MARKET"
+
+
+def testSkippedPriceCheckExplainsWhy():
+    listingWithoutRent = {key: value for key, value in validListing.items() if key != "monthlyRent"}
+    body = client.post("/analyze", json=listingWithoutRent).json()
+    assert "price" in body["checksSkipped"]
+    assert "monthly rent" in body["skipReasons"]["price"]
+
+
 def testAnalyzeRejectsInvalidListingWith422():
     badListing = {**validListing, "address": {"zipCode": "123"}}
     response = client.post("/analyze", json=badListing)

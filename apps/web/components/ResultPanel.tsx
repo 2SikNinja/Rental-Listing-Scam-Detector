@@ -94,6 +94,15 @@ export default function ResultPanel({ result }: { result: AnalysisResult }) {
           <span className="font-medium text-zinc-800 dark:text-zinc-200">Not checked:</span>{" "}
           {result.checksSkipped.length > 0 ? result.checksSkipped.join(", ") : "none"}
         </p>
+        {Object.entries(result.skipReasons ?? {}).length > 0 && (
+          <ul className="mt-2 list-disc pl-5 text-xs">
+            {Object.entries(result.skipReasons ?? {}).map(([checkName, skipReason]) => (
+              <li key={checkName}>
+                <span className="font-medium">{checkName}</span>: {skipReason}
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       <div>

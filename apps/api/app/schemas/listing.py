@@ -205,6 +205,7 @@ class AnalysisResult(BaseModel):
     signals: list[SignalOut]
     checksRun: list[CheckName]
     checksSkipped: list[CheckName]
+    skipReasons: dict[str, str] = Field(default_factory=dict)
     safetyTips: list[str]
     disclaimer: str = (
         "This is an automated risk assessment, not a verdict. A high score means the "
