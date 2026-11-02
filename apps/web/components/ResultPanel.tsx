@@ -29,6 +29,12 @@ const severityBadge: Record<Severity, string> = {
   high: "bg-red-100 text-red-900 dark:bg-red-950 dark:text-red-200",
 };
 
+/** Text check evidence: the exact phrases that triggered a signal. */
+function getMatchedPhrases(evidence: Record<string, unknown>): string[] {
+  const matchedPhrases = evidence.matchedPhrases;
+  return Array.isArray(matchedPhrases) ? matchedPhrases.filter((phrase) => typeof phrase === "string") : [];
+}
+
 export default function ResultPanel({ result }: { result: AnalysisResult }) {
   const riskStyle = riskStyles[result.riskLevel];
   const noChecksRan = result.checksRun.length === 0;
@@ -62,6 +68,17 @@ export default function ResultPanel({ result }: { result: AnalysisResult }) {
                   <span className="text-xs uppercase tracking-wide text-zinc-500">{signal.checkName} check</span>
                 </div>
                 <p className="mt-2 text-sm">{signal.explanation}</p>
+                {getMatchedPhrases(signal.evidence).length > 0 && (
+                  <p className="mt-2 text-xs text-zinc-600 dark:text-zinc-400">
+                    Found in listing:{" "}
+                    {getMatchedPhrases(signal.evidence).map((phrase, phraseIndex) => (
+                      <span key={phrase}>
+                        {phraseIndex > 0 && ", "}
+                        <q className="font-mono">{phrase}</q>
+                      </span>
+                    ))}
+                  </p>
+                )}
               </li>
             ))}
           </ul>

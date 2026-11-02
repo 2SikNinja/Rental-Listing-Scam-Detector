@@ -45,6 +45,27 @@ def testAnalyzeReportsSkippedChecks():
     }
 
 
+def testObviousScamListingIsHighRisk():
+    scamListing = {
+        **validListing,
+        "description": "Owner is overseas, keys will be mailed after you send the deposit by wire transfer.",
+    }
+    body = client.post("/analyze", json=scamListing).json()
+    assert body["riskLevel"] == "high"
+    assert "text" in body["checksRun"]
+    signalCodes = {signal["signalCode"] for signal in body["signals"]}
+    assert {"OWNER_UNAVAILABLE", "KEYS_MAILED", "UNTRACEABLE_PAYMENT"} <= signalCodes
+    # Most serious signals are listed first
+    signalPoints = [signal["points"] for signal in body["signals"]]
+    assert signalPoints == sorted(signalPoints, reverse=True)
+
+
+def testCleanListingHasNoTextSignals():
+    body = client.post("/analyze", json=validListing).json()
+    assert body["signals"] == []
+    assert body["riskLevel"] == "low"
+
+
 def testAnalyzeRejectsInvalidListingWith422():
     badListing = {**validListing, "address": {"zipCode": "123"}}
     response = client.post("/analyze", json=badListing)
