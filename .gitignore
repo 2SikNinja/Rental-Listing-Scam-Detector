@@ -15,6 +15,10 @@ dist/
 .env.*
 !.env.example
 
+# Raw source spreadsheets (only the converted CSV is committed)
+*.xlsx
+*.xls
+
 # Supabase local state
 supabase/.branches/
 supabase/.temp/

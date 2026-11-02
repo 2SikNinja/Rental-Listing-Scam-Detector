@@ -4,10 +4,17 @@ import csv
 from pathlib import Path
 import sys
 
+import pytest
+
 from app.services.marketRents import CsvMarketRentProvider
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
-from loadMarketRents import convertFile, parseDollarsToCents  # noqa: E402
+from loadMarketRents import (  # noqa: E402
+    convertFile,
+    fiscalYearInNamePattern,
+    guessFiscalYear,
+    parseDollarsToCents,
+)
 
 
 def writeCsv(filePath: Path, rows: list[list[object]]) -> None:
@@ -85,9 +92,20 @@ def testParseDollarsToCents():
     assert parseDollarsToCents("0") is None
 
 
-def testBundledSampleDataLoads():
-    """The CSV committed to the repo must stay valid."""
+def testBundledDataLoads():
+    """The CSV committed to the repo must stay valid, whatever year it holds."""
     bundledPath = Path(__file__).resolve().parent.parent / "data" / "marketRents.csv"
     provider = CsvMarketRentProvider(bundledPath)
     assert provider.isLoaded
-    assert provider.getMarketRent("92628", 2).monthlyRentCents == 324000
+    costaMesaTwoBedroom = provider.getMarketRent("92628", 2)
+    assert costaMesaTwoBedroom is not None
+    assert 100000 < costaMesaTwoBedroom.monthlyRentCents < 1000000
+
+
+@pytest.mark.parametrize(
+    ("fileName", "expectedYear"),
+    [("FY27_safmrs.xlsx", 2027), ("fy2027_safmrs.xlsx", 2027), ("SAFMR FY 2026.xlsx", 2026)],
+)
+def testFiscalYearGuessedFromFileName(fileName, expectedYear):
+    yearMatch = fiscalYearInNamePattern.search(fileName)
+    assert guessFiscalYear(yearMatch.group(1)) == expectedYear

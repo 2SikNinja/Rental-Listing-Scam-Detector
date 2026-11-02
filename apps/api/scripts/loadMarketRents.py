@@ -28,7 +28,8 @@ apiRootDir = Path(__file__).resolve().parent.parent
 defaultOutputPath = apiRootDir / "data" / "marketRents.csv"
 
 bedroomHeaderPattern = re.compile(r"^safmr ?([0-4]) ?br$")
-fiscalYearInNamePattern = re.compile(r"fy ?(\d{4})", re.IGNORECASE)
+# Matches "fy2027", "FY 2027", and HUD's short form "FY27"
+fiscalYearInNamePattern = re.compile(r"fy ?(\d{4}|\d{2})(?!\d)", re.IGNORECASE)
 
 
 def normalizeHeader(rawHeader: object) -> str:
@@ -108,6 +109,11 @@ def convertFile(inputPath: Path, outputPath: Path, fiscalYear: int) -> int:
     return writtenCount
 
 
+def guessFiscalYear(yearText: str) -> int:
+    """'2027' -> 2027 and '27' -> 2027."""
+    return int(yearText) if len(yearText) == 4 else 2000 + int(yearText)
+
+
 def main() -> None:
     argumentParser = argparse.ArgumentParser(description="Build data/marketRents.csv from HUD SAFMR data.")
     argumentParser.add_argument("inputFile", type=Path, help="HUD SAFMR .xlsx or .csv file")
@@ -121,7 +127,7 @@ def main() -> None:
         yearMatch = fiscalYearInNamePattern.search(parsedArgs.inputFile.name)
         if not yearMatch:
             sys.exit("Could not guess the fiscal year from the file name. Pass --fiscal-year 2027.")
-        fiscalYear = int(yearMatch.group(1))
+        fiscalYear = guessFiscalYear(yearMatch.group(1))
 
     writtenCount = convertFile(parsedArgs.inputFile, parsedArgs.output, fiscalYear)
     print(f"Wrote {writtenCount:,} rows (FY{fiscalYear}) to {parsedArgs.output}")
