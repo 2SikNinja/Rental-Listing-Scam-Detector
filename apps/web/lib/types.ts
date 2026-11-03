@@ -8,7 +8,7 @@
 
 export type CheckName = "price" | "text" | "photo" | "address" | "contact";
 export type Severity = "info" | "low" | "medium" | "high";
-export type RiskLevel = "low" | "medium" | "high";
+export type RiskLevel = "low" | "medium" | "high" | "insufficient_data";
 
 export interface AddressInput {
   street?: string;
@@ -48,6 +48,8 @@ export interface AnalysisResult {
   analysisId: string;
   riskLevel: RiskLevel;
   totalPoints: number;
+  riskThresholds: { medium?: number; high?: number };
+  scoringConfigVersion: string;
   signals: Signal[];
   checksRun: CheckName[];
   checksSkipped: CheckName[];

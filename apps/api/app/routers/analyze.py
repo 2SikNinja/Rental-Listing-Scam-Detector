@@ -1,14 +1,10 @@
 """
 POST /analyze: the endpoint the paste form and Chrome extension call.
 
-The router only coordinates: it runs each available check, turns the
-signals into points, and builds the response. The detection logic lives
-in app/checks/, one module per check.
-
-Step 3 status: the text and price checks run. The points and risk thresholds below
-are a temporary stand-in. Step 4 replaces them with the scoring engine
-(app/scoring/engine.py) and tunable weights in weights.yaml, including
-an "insufficient data" result when too few checks could run.
+The router only coordinates:
+  1. run each available check  (app/checks/)
+  2. score the signals         (app/scoring/engine.py + weights.yaml)
+  3. build the response, including safety tips and skip reasons
 """
 
 import uuid
@@ -18,97 +14,71 @@ from fastapi import APIRouter, Depends
 from app.checks.base import CheckOutcome
 from app.checks.priceCheck import runPriceCheck
 from app.checks.textCheck import runTextCheck
+from app.schemas.listing import AnalysisResult, CheckName, ListingSubmission, SignalOut
+from app.scoring.engine import ScoringConfig, getScoringConfig, scoreOutcomes
+from app.scoring.safetyTips import buildSafetyTips
 from app.services.marketRents import MarketRentProvider, getMarketRentProvider
-from app.schemas.listing import (
-    AnalysisResult,
-    CheckName,
-    ListingSubmission,
-    RiskLevel,
-    Severity,
-    SignalOut,
-)
 
 router = APIRouter(tags=["analysis"])
 
 allCheckNames: list[CheckName] = ["price", "text", "photo", "address", "contact"]
 
-# Temporary scoring (moves to weights.yaml in Step 4)
-interimSeverityPoints: dict[Severity, int] = {"info": 0, "low": 5, "medium": 15, "high": 30}
-interimHighThreshold = 50
-interimMediumThreshold = 20
-
-# Shown on every result, whatever the score. A low score is never proof
-# that a listing is safe, so these always appear.
-generalSafetyTips = [
-    "Never send a deposit or rent before you have seen the unit in person or by live video.",
-    "Be wary of payment by wire transfer, gift cards, Zelle, or crypto. These are hard to reverse.",
-    "Search the address online to check whether it is listed for sale or by another landlord.",
-    "Ask for a signed lease and check that the landlord's name matches public property records.",
-    "Keep all communication on the original listing platform when possible.",
-]
-
-
-def interimRiskLevel(totalPoints: int) -> RiskLevel:
-    if totalPoints >= interimHighThreshold:
-        return "high"
-    if totalPoints >= interimMediumThreshold:
-        return "medium"
-    return "low"
+# Checks that are planned but not built yet, so skipped results say why
+notYetAvailableReason = "This check is not available yet."
 
 
 @router.post("/analyze", response_model=AnalysisResult)
 def analyzeListing(
     submission: ListingSubmission,
     marketRentProvider: MarketRentProvider = Depends(getMarketRentProvider),
+    scoringConfig: ScoringConfig = Depends(getScoringConfig),
 ) -> AnalysisResult:
     """
     Analyze a pasted rental listing and return a risk assessment.
 
-    FastAPI has already validated `submission` against ListingSubmission
-    before this function runs. Invalid input never reaches this code; the
-    client gets a 422 response that names the bad field instead.
-
-    `marketRentProvider` is supplied by FastAPI's dependency injection, so
-    tests can swap in a small fake data set.
+    FastAPI has already validated `submission` before this runs, and it
+    injects the market data and scoring config, so tests can replace
+    either one with a small fake.
     """
     checkOutcomes: list[CheckOutcome] = [
         runPriceCheck(submission, marketRentProvider),
         runTextCheck(submission),
     ]
 
-    signalsOut: list[SignalOut] = []
-    for outcome in checkOutcomes:
-        for detectedSignal in outcome.signals:
-            signalsOut.append(
-                SignalOut(
-                    checkName=detectedSignal.checkName,
-                    signalCode=detectedSignal.signalCode,
-                    severity=detectedSignal.severity,
-                    points=interimSeverityPoints[detectedSignal.severity],
-                    explanation=detectedSignal.explanation,
-                    evidence=detectedSignal.evidence,
-                )
-            )
-
-    # Most serious flags first, so the results page leads with them
-    signalsOut.sort(key=lambda signalOut: signalOut.points, reverse=True)
-    totalPoints = sum(signalOut.points for signalOut in signalsOut)
+    scoreResult = scoreOutcomes(checkOutcomes, scoringConfig)
 
     checksRun: list[CheckName] = [outcome.checkName for outcome in checkOutcomes if outcome.ran]
     checksSkipped = [checkName for checkName in allCheckNames if checkName not in checksRun]
-    skipReasons = {
-        outcome.checkName: outcome.skipReason
-        for outcome in checkOutcomes
-        if not outcome.ran and outcome.skipReason
-    }
+
+    skipReasons: dict[str, str] = {}
+    for outcome in checkOutcomes:
+        if not outcome.ran and outcome.skipReason:
+            skipReasons[outcome.checkName] = outcome.skipReason
+    for checkName in checksSkipped:
+        skipReasons.setdefault(checkName, notYetAvailableReason)
 
     return AnalysisResult(
         analysisId=uuid.uuid4(),
-        riskLevel=interimRiskLevel(totalPoints),
-        totalPoints=totalPoints,
-        signals=signalsOut,
+        riskLevel=scoreResult.riskLevel,
+        totalPoints=scoreResult.totalPoints,
+        riskThresholds={
+            "medium": scoringConfig.riskThresholds.medium,
+            "high": scoringConfig.riskThresholds.high,
+        },
+        scoringConfigVersion=scoreResult.configVersion,
+        signals=[
+            SignalOut(
+                checkName=scored.signal.checkName,
+                signalCode=scored.signal.signalCode,
+                severity=scored.signal.severity,
+                points=scored.points,
+                explanation=scored.signal.explanation,
+                evidence=scored.signal.evidence,
+            )
+            for scored in scoreResult.scoredSignals
+        ],
         checksRun=checksRun,
         checksSkipped=checksSkipped,
         skipReasons=skipReasons,
-        safetyTips=generalSafetyTips,
+        safetyTips=buildSafetyTips(scoreResult.scoredSignals),
     )

@@ -22,7 +22,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 # ---------------------------------------------------------------------
 CheckName = Literal["price", "text", "photo", "address", "contact"]
 Severity = Literal["info", "low", "medium", "high"]
-RiskLevel = Literal["low", "medium", "high"]
+# "insufficient_data" means no red flags were found, but too few checks
+# could run to call the listing low risk.
+RiskLevel = Literal["low", "medium", "high", "insufficient_data"]
 ListingSource = Literal["paste", "extension"]
 
 # Control characters (except tab and newline) can hide text, break logs,
@@ -202,6 +204,10 @@ class AnalysisResult(BaseModel):
     analysisId: uuid.UUID
     riskLevel: RiskLevel
     totalPoints: int
+    # Points needed for each level, so the page can explain the score
+    riskThresholds: dict[str, int] = Field(default_factory=dict)
+    # Which weights.yaml version produced this score (for reproducibility)
+    scoringConfigVersion: str = ""
     signals: list[SignalOut]
     checksRun: list[CheckName]
     checksSkipped: list[CheckName]

@@ -1,0 +1,46 @@
+# =====================================================================
+# Scoring weights and risk thresholds
+#
+# Edit this file to tune scoring without changing any Python code.
+# Bump `version` every time you change a number: each result records the
+# version that produced it, so old and new results can be compared.
+# =====================================================================
+
+version: "2026-11-03.2"
+
+# Base points for each signal, by severity
+severityPoints:
+  info: 0
+  low: 5
+  medium: 15
+  high: 30
+
+# Exceptions to the base points for specific signals
+signalPointOverrides:
+  # Many honest landlords accept Zelle or Venmo, so on its own this is
+  # weaker evidence than a typical medium signal.
+  PEER_TO_PEER_PAYMENT: 10
+  # A price far below market is the core lure of most rental scams and
+  # is hard for a scammer to hide, so it counts a bit more than other
+  # high signals.
+  RENT_FAR_BELOW_MARKET: 35
+  # 30 to 50% below market is notable on its own, so it reaches the
+  # "medium" line by itself instead of showing a red flag on a "low" result.
+  RENT_BELOW_MARKET: 20
+
+# Upper limit on points from any single check. Without this, a listing
+# that repeats several scam phrases could reach "high" from wording
+# alone, with nothing else suspicious about it.
+maxPointsPerCheck:
+  text: 65
+
+# Total points needed for each level. Anything below `medium` is low.
+riskThresholds:
+  medium: 20
+  high: 50
+
+# A "low risk" result is only shown if at least this many checks ran.
+# Otherwise the result is "insufficient data": the absence of red flags
+# is not evidence of safety if most checks could not run. Medium and
+# high results are always shown, because the flags found are real.
+minimumChecksForLowRisk: 2

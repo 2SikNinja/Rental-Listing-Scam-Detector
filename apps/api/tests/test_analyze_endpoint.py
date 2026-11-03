@@ -12,15 +12,19 @@ from fastapi.testclient import TestClient
 import pytest
 
 from app.main import app
+from app.scoring.engine import getScoringConfig
 from app.services.marketRents import getMarketRentProvider
 from tests.fakes import FakeMarketRentProvider
+from tests.test_scoring import testConfig
 
 client = TestClient(app)
 
 
 @pytest.fixture(autouse=True)
-def useFakeMarketData():
+def useFakeDependencies():
+    """Fixed market data and scoring weights, so tuning weights.yaml never breaks these tests."""
     app.dependency_overrides[getMarketRentProvider] = lambda: FakeMarketRentProvider(zipCode="91101")
+    app.dependency_overrides[getScoringConfig] = lambda: testConfig
     yield
     app.dependency_overrides.clear()
 
@@ -93,6 +97,29 @@ def testSkippedPriceCheckExplainsWhy():
     body = client.post("/analyze", json=listingWithoutRent).json()
     assert "price" in body["checksSkipped"]
     assert "monthly rent" in body["skipReasons"]["price"]
+
+
+def testMissingPriceDataGivesInsufficientDataNotLow():
+    listingWithoutRent = {key: value for key, value in validListing.items() if key != "monthlyRent"}
+    body = client.post("/analyze", json=listingWithoutRent).json()
+    assert body["riskLevel"] == "insufficient_data"
+
+
+def testFutureChecksExplainTheyAreNotAvailable():
+    body = client.post("/analyze", json=validListing).json()
+    assert body["skipReasons"]["photo"] == "This check is not available yet."
+
+
+def testResponseIncludesScoringVersionAndThresholds():
+    body = client.post("/analyze", json=validListing).json()
+    assert body["scoringConfigVersion"] == "test-1"
+    assert body["riskThresholds"] == {"medium": 20, "high": 50}
+
+
+def testSafetyTipsMatchTheSignalsFound():
+    scamListing = {**validListing, "description": "Great place. The keys will be mailed to you after approval."}
+    body = client.post("/analyze", json=scamListing).json()
+    assert "keys" in body["safetyTips"][0].lower()
 
 
 def testAnalyzeRejectsInvalidListingWith422():

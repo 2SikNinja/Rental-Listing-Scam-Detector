@@ -7,18 +7,26 @@
 
 import type { AnalysisResult, RiskLevel, Severity } from "@/lib/types";
 
-const riskStyles: Record<RiskLevel, { label: string; className: string }> = {
+const riskStyles: Record<RiskLevel, { label: string; summary: string; className: string }> = {
   low: {
     label: "Low risk",
+    summary: "The checks that ran found few or no common scam warning signs.",
     className: "border-emerald-300 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-100",
   },
   medium: {
     label: "Medium risk",
+    summary: "This listing shows some warning signs. Verify the landlord and the unit before paying anything.",
     className: "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100",
   },
   high: {
     label: "High risk",
+    summary: "This listing shares several patterns with known rental scams. Do not send money until you have verified everything.",
     className: "border-red-300 bg-red-50 text-red-900 dark:border-red-800 dark:bg-red-950 dark:text-red-100",
+  },
+  insufficient_data: {
+    label: "Not enough information",
+    summary: "No red flags were found, but too few checks could run to call this listing low risk. Add the missing details below for a fuller check.",
+    className: "border-zinc-300 bg-zinc-100 text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100",
   },
 };
 
@@ -44,7 +52,13 @@ export default function ResultPanel({ result }: { result: AnalysisResult }) {
       <div className={`rounded-xl border p-5 ${riskStyle.className}`}>
         <p className="text-sm font-medium uppercase tracking-wide opacity-80">Assessment</p>
         <p className="mt-1 text-2xl font-semibold">{riskStyle.label}</p>
-        <p className="mt-1 text-sm opacity-80">{result.totalPoints} risk points</p>
+        <p className="mt-2 text-sm">{riskStyle.summary}</p>
+        <p className="mt-3 text-xs opacity-80">
+          {result.totalPoints} risk points
+          {result.riskThresholds.medium !== undefined && result.riskThresholds.high !== undefined && (
+            <> (medium starts at {result.riskThresholds.medium}, high at {result.riskThresholds.high})</>
+          )}
+        </p>
       </div>
 
       {noChecksRan && (
@@ -66,6 +80,7 @@ export default function ResultPanel({ result }: { result: AnalysisResult }) {
                     {signal.severity}
                   </span>
                   <span className="text-xs uppercase tracking-wide text-zinc-500">{signal.checkName} check</span>
+                  <span className="ml-auto text-xs text-zinc-500">+{signal.points} pts</span>
                 </div>
                 <p className="mt-2 text-sm">{signal.explanation}</p>
                 {getMatchedPhrases(signal.evidence).length > 0 && (
@@ -116,6 +131,7 @@ export default function ResultPanel({ result }: { result: AnalysisResult }) {
 
       <p className="border-t border-zinc-200 pt-4 text-xs leading-5 text-zinc-500 dark:border-zinc-800">
         {result.disclaimer}
+        {result.scoringConfigVersion && <> Scoring version {result.scoringConfigVersion}.</>}
       </p>
     </section>
   );
