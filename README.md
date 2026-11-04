@@ -106,6 +106,8 @@ Run the tests with `uv run pytest` from `apps/api`.
 
 Every push and pull request runs three jobs in GitHub Actions: the API test suite, a TypeScript check plus lint plus production build of the website, and a Docker build that starts the container and checks `/health`. When all three pass on `master`, a deploy job builds the image, tags it with the commit SHA, and releases it to Cloud Run, then confirms the live service is healthy. Vercel deploys the website from the same branch.
 
+GitHub signs in to Google Cloud through **Workload Identity Federation**: each run exchanges a GitHub-signed identity token for a Google credential that expires in about an hour, and Google only accepts tokens from this repository's `master` branch. No cloud keys are stored in GitHub. The one-time setup is in [`scripts/setupGithubDeploy.ps1`](scripts/setupGithubDeploy.ps1).
+
 ## Limitations
 
 - **Text rules miss reworded scams.** Testing against October 2026 news reports showed that modern scams (self-tour links, staged small fees, social media pages) often avoid classic wording. The price check holds up better because a low price is the lure itself. An optional LLM pass is planned for rephrased text.
