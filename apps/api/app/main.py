@@ -15,6 +15,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import getSettings
+from app.db import closeConnectionPool, getConnectionPool
 from app.routers import analyze
 from app.scoring.engine import getScoringConfig
 from app.services.marketRents import getMarketRentProvider
@@ -30,7 +31,9 @@ async def lifespan(_: FastAPI):
     """
     getScoringConfig()
     getMarketRentProvider()
+    getConnectionPool()  # opens database connections now, if persistence is on
     yield
+    closeConnectionPool()  # lets in-flight queries finish when Cloud Run stops the container
 
 
 def createApp() -> FastAPI:

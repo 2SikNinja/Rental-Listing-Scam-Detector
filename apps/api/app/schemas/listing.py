@@ -202,6 +202,8 @@ class AnalysisResult(BaseModel):
     """What the results page displays."""
 
     analysisId: uuid.UUID
+    # False if the result could not be stored (or storage is turned off)
+    saved: bool = False
     riskLevel: RiskLevel
     totalPoints: int
     # Points needed for each level, so the page can explain the score

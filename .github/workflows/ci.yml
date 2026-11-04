@@ -37,6 +37,24 @@ jobs:
     defaults:
       run:
         working-directory: apps/api
+    # A throwaway Postgres for the integration tests. It only exists for
+    # this job and has nothing to do with the real Supabase database.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: owner
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_DB: scamtest
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U owner"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGPASSWORD: ci-only-password
+      TEST_API_DATABASE_URL: postgresql://scam_api:ci-api-password@localhost:5432/scamtest
     steps:
       - uses: actions/checkout@v4
 
@@ -50,7 +68,19 @@ jobs:
         # --frozen fails if uv.lock is out of date, so CI uses exactly the locked versions
         run: uv sync --frozen
 
-      - name: Run tests
+      - name: Apply database migrations to the test database
+        # Runs the same migration files as production, in order, after a
+        # small stub for the Supabase-only pieces they reference.
+        run: |
+          adminUrl="postgresql://owner@localhost:5432/scamtest"
+          psql "$adminUrl" -q -v ON_ERROR_STOP=1 -f tests/integration/supabaseStub.sql
+          for migrationFile in ../../supabase/migrations/*.sql; do
+            echo "Applying $migrationFile"
+            psql "$adminUrl" -q -v ON_ERROR_STOP=1 -f "$migrationFile"
+          done
+          psql "$adminUrl" -q -c "alter role scam_api with login password 'ci-api-password'"
+
+      - name: Run tests (unit and database integration)
         run: uv run pytest -q
 
   web:

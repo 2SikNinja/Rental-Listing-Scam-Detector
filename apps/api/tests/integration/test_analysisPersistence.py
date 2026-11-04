@@ -1,0 +1,131 @@
+"""
+Integration tests against a real Postgres database.
+
+These run the real migrations and connect as the least-privilege
+scam_api role, exactly like production. They are skipped unless
+TEST_API_DATABASE_URL is set (CI sets it up with a Postgres container).
+
+Locally:
+    TEST_ADMIN_DATABASE_URL=postgresql://owner:pw@localhost:5432/scamtest
+    TEST_API_DATABASE_URL=postgresql://scam_api:pw@localhost:5432/scamtest
+"""
+
+import os
+import uuid
+
+from fastapi.testclient import TestClient
+import psycopg
+from psycopg_pool import ConnectionPool
+import pytest
+
+from app.db import getConnectionPool
+from app.main import app
+from app.scoring.engine import getScoringConfig
+from app.security.rateLimit import SlidingWindowRateLimiter, getRateLimiter
+from app.services.marketRents import getMarketRentProvider
+from tests.fakes import FakeMarketRentProvider
+from tests.test_scoring import testConfig
+
+apiDatabaseUrl = os.environ.get("TEST_API_DATABASE_URL")
+adminDatabaseUrl = os.environ.get("TEST_ADMIN_DATABASE_URL")
+
+pytestmark = pytest.mark.skipif(not apiDatabaseUrl, reason="TEST_API_DATABASE_URL not set")
+
+client = TestClient(app)
+
+scamListing = {
+    "title": "2BR apartment, call 626-555-0101",
+    "description": "Owner is overseas, keys will be mailed. Email owner@example.com or text 626-555-0101.",
+    "monthlyRent": "800",
+    "bedrooms": 2,
+    "address": {"city": "Pasadena", "stateCode": "CA", "zipCode": "91101"},
+    "contact": {"name": "Pat Smith", "email": "owner@example.com", "phone": "626-555-0101"},
+}
+
+
+@pytest.fixture(scope="module")
+def apiPool():
+    pool = ConnectionPool(apiDatabaseUrl, min_size=1, max_size=2, open=True,
+                          kwargs={"prepare_threshold": None})
+    yield pool
+    pool.close()
+
+
+@pytest.fixture(autouse=True)
+def useTestDependencies(apiPool):
+    app.dependency_overrides[getConnectionPool] = lambda: apiPool
+    app.dependency_overrides[getMarketRentProvider] = lambda: FakeMarketRentProvider(zipCode="91101")
+    app.dependency_overrides[getScoringConfig] = lambda: testConfig
+    app.dependency_overrides[getRateLimiter] = lambda: SlidingWindowRateLimiter(maxRequests=10_000)
+    yield
+    app.dependency_overrides.clear()
+
+
+def fetchAll(query: str, params: tuple = ()) -> list[tuple]:
+    with psycopg.connect(apiDatabaseUrl) as connection:
+        return connection.execute(query, params).fetchall()
+
+
+def testAnalysisIsSavedWithAllParts():
+    body = client.post("/analyze", json=scamListing).json()
+    assert body["saved"] is True
+    analysisId = uuid.UUID(body["analysisId"])
+
+    analysisRows = fetchAll(
+        "select risk_level::text, total_points, status::text, scoring_config_version, listing_id "
+        "from public.analyses where id = %s", (analysisId,))
+    assert len(analysisRows) == 1
+    riskLevel, totalPoints, status, configVersion, listingId = analysisRows[0]
+    assert (riskLevel, totalPoints, status, configVersion) == (body["riskLevel"], body["totalPoints"], "complete", "test-1")
+
+    savedSignalCodes = {row[0] for row in fetchAll(
+        "select signal_code from public.signals where analysis_id = %s", (analysisId,))}
+    assert savedSignalCodes == {signal["signalCode"] for signal in body["signals"]}
+
+    contactKinds = sorted(row[0] for row in fetchAll(
+        "select kind::text from public.listing_contacts where listing_id = %s", (listingId,)))
+    assert contactKinds == ["email", "name", "phone"]
+
+
+def testNoRawContactInfoIsStored():
+    analysisId = client.post("/analyze", json=scamListing).json()["analysisId"]
+    title, description = fetchAll(
+        "select l.title, l.description_redacted from public.listings l "
+        "join public.analyses a on a.listing_id = l.id where a.id = %s", (analysisId,))[0]
+    storedText = f"{title} {description}"
+    assert "555-0101" not in storedText
+    assert "owner@example.com" not in storedText
+    assert "[phone removed]" in storedText
+
+
+def testSameContactProducesSameHashAcrossListings():
+    """This is what will power 'this phone number appeared on N other listings'."""
+    firstId = client.post("/analyze", json=scamListing).json()["analysisId"]
+    secondId = client.post("/analyze", json=scamListing).json()["analysisId"]
+    query = (
+        "select c.value_hmac from public.listing_contacts c "
+        "join public.analyses a on a.listing_id = c.listing_id "
+        "where a.id = %s and c.kind = 'phone'"
+    )
+    assert fetchAll(query, (firstId,)) == fetchAll(query, (secondId,))
+
+
+def testApiRoleCannotDeleteOrChangeData():
+    with psycopg.connect(apiDatabaseUrl, autocommit=True) as connection:
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            connection.execute("delete from public.listings")
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            connection.execute("update public.analyses set risk_level = 'low'")
+
+
+def testDatabaseFailureStillReturnsResult():
+    """If saving fails, the user still gets their analysis, with saved=false."""
+    brokenPool = ConnectionPool("postgresql://nobody:wrong@127.0.0.1:1/none", min_size=0, max_size=1,
+                                timeout=1, open=True)
+    app.dependency_overrides[getConnectionPool] = lambda: brokenPool
+    try:
+        response = client.post("/analyze", json=scamListing)
+    finally:
+        brokenPool.close()
+    assert response.status_code == 200
+    assert response.json()["saved"] is False
