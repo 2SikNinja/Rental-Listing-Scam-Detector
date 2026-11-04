@@ -9,11 +9,28 @@ missing or invalid secret stops the server at startup instead of failing
 on the first request.
 """
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import getSettings
 from app.routers import analyze
+from app.scoring.engine import getScoringConfig
+from app.services.marketRents import getMarketRentProvider
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    """
+    Runs once when the server starts. Loading the scoring weights and the
+    193,000-row market rent file here means a bad config stops startup
+    (fail fast), and the first real user doesn't wait about 2 seconds for
+    the data to load.
+    """
+    getScoringConfig()
+    getMarketRentProvider()
+    yield
 
 
 def createApp() -> FastAPI:
@@ -30,6 +47,7 @@ def createApp() -> FastAPI:
         docs_url=None if isProduction else "/docs",
         redoc_url=None,
         openapi_url=None if isProduction else "/openapi.json",
+        lifespan=lifespan,
     )
 
     # CORS: browsers block web pages from calling an API on another

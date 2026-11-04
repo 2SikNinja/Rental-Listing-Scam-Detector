@@ -57,6 +57,9 @@ class Settings(BaseSettings):
         default="http://localhost:3000", validation_alias="CORS_ALLOWED_ORIGINS"
     )
     rateLimitPerMinute: int = Field(default=10, ge=1, le=1000, validation_alias="RATE_LIMIT_PER_MINUTE")
+    # True only when running behind a trusted proxy (Cloud Run), so the
+    # client IP is read from X-Forwarded-For. Keep false locally.
+    trustProxyHeaders: bool = Field(default=False, validation_alias="TRUST_PROXY_HEADERS")
     maxPhotosPerListing: int = Field(default=10, ge=1, le=20, validation_alias="MAX_PHOTOS_PER_LISTING")
     maxPhotoBytes: int = Field(
         default=5 * 1024 * 1024, ge=1, le=20 * 1024 * 1024, validation_alias="MAX_PHOTO_BYTES"

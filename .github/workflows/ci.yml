@@ -1,0 +1,110 @@
+# =====================================================================
+# Continuous integration
+#
+# Runs on every push to master and every pull request. Three jobs run in
+# parallel; any failure marks the commit with a red X on GitHub.
+#   api     - Python tests (pytest)
+#   web     - TypeScript type check, lint, and production build
+#   docker  - builds the API image and checks the container starts
+# =====================================================================
+
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+# Least privilege: these jobs only need to read the code.
+permissions:
+  contents: read
+
+# If you push twice quickly, cancel the older run instead of running both.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  api:
+    name: API tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: apps/api/uv.lock
+
+      - name: Install Python and dependencies
+        # --frozen fails if uv.lock is out of date, so CI uses exactly the locked versions
+        run: uv sync --frozen
+
+      - name: Run tests
+        run: uv run pytest -q
+
+  web:
+    name: Web build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    env:
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate route types
+        run: npx next typegen
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Production build
+        run: npm run build
+
+  docker:
+    name: Docker image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build API image
+        run: docker build -t rental-scam-api apps/api
+
+      - name: Start container and check /health
+        # Fake values only: real secrets never go in CI logs or the image.
+        run: |
+          docker run -d --name api -p 8080:8080 \
+            -e APP_ENV=test \
+            -e DATABASE_URL=postgresql://ci:ci@localhost:5432/ci \
+            -e SUPABASE_URL=http://localhost:54321 \
+            -e CONTACT_HASH_SECRET=$(printf 'a%.0s' $(seq 1 64)) \
+            rental-scam-api
+          for attempt in $(seq 1 20); do
+            if curl -fsS http://localhost:8080/health; then
+              echo
+              echo "Container is healthy"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Container did not become healthy. Logs:"
+          docker logs api
+          exit 1

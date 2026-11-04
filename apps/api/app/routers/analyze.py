@@ -17,6 +17,7 @@ from app.checks.textCheck import runTextCheck
 from app.schemas.listing import AnalysisResult, CheckName, ListingSubmission, SignalOut
 from app.scoring.engine import ScoringConfig, getScoringConfig, scoreOutcomes
 from app.scoring.safetyTips import buildSafetyTips
+from app.security.rateLimit import enforceRateLimit
 from app.services.marketRents import MarketRentProvider, getMarketRentProvider
 
 router = APIRouter(tags=["analysis"])
@@ -27,7 +28,7 @@ allCheckNames: list[CheckName] = ["price", "text", "photo", "address", "contact"
 notYetAvailableReason = "This check is not available yet."
 
 
-@router.post("/analyze", response_model=AnalysisResult)
+@router.post("/analyze", response_model=AnalysisResult, dependencies=[Depends(enforceRateLimit)])
 def analyzeListing(
     submission: ListingSubmission,
     marketRentProvider: MarketRentProvider = Depends(getMarketRentProvider),

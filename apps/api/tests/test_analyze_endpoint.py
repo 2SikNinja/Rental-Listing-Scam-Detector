@@ -13,6 +13,7 @@ import pytest
 
 from app.main import app
 from app.scoring.engine import getScoringConfig
+from app.security.rateLimit import SlidingWindowRateLimiter, getRateLimiter
 from app.services.marketRents import getMarketRentProvider
 from tests.fakes import FakeMarketRentProvider
 from tests.test_scoring import testConfig
@@ -25,6 +26,8 @@ def useFakeDependencies():
     """Fixed market data and scoring weights, so tuning weights.yaml never breaks these tests."""
     app.dependency_overrides[getMarketRentProvider] = lambda: FakeMarketRentProvider(zipCode="91101")
     app.dependency_overrides[getScoringConfig] = lambda: testConfig
+    # Rate limiting has its own tests; here it would throttle the many requests
+    app.dependency_overrides[getRateLimiter] = lambda: SlidingWindowRateLimiter(maxRequests=10_000)
     yield
     app.dependency_overrides.clear()
 
