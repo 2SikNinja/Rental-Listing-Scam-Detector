@@ -1,11 +1,16 @@
 # =====================================================================
-# Continuous integration
+# Continuous integration and deployment
 #
-# Runs on every push to master and every pull request. Three jobs run in
-# parallel; any failure marks the commit with a red X on GitHub.
+# Runs on every push to master and every pull request. Three check jobs
+# run in parallel; any failure marks the commit with a red X on GitHub.
 #   api     - Python tests (pytest)
 #   web     - TypeScript type check, lint, and production build
 #   docker  - builds the API image and checks the container starts
+#
+# Then, only for pushes to master where all three passed:
+#   deploy  - builds the API image, pushes it to Artifact Registry, and
+#             releases it on Cloud Run. The website deploys separately
+#             through Vercel's GitHub integration.
 # =====================================================================
 
 name: CI
@@ -15,14 +20,15 @@ on:
     branches: [master]
   pull_request:
 
-# Least privilege: these jobs only need to read the code.
+# Least privilege: jobs only read the code unless they ask for more.
 permissions:
   contents: read
 
-# If you push twice quickly, cancel the older run instead of running both.
+# Pushing twice to a pull request cancels the older run. On master, runs
+# are never cancelled, so a deploy is never stopped halfway through.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   api:
@@ -107,4 +113,57 @@ jobs:
           done
           echo "Container did not become healthy. Logs:"
           docker logs api
+          exit 1
+
+  deploy:
+    name: Deploy API to Cloud Run
+    needs: [api, web, docker]
+    # Only real pushes to master, and only once the Google Cloud setup
+    # (scripts/setupGithubDeploy.ps1) has been done and its values saved
+    # as repository variables. Until then this job is skipped, not failed.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master' && vars.GCP_WIF_PROVIDER != ''
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write  # lets the job request a GitHub identity token for Google
+    env:
+      REGION: us-west1
+      SERVICE: rental-scam-api
+      IMAGE: us-west1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/cloud-run-source-deploy/rental-scam-api:${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sign in to Google Cloud (Workload Identity Federation, no stored keys)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build and push image
+        # Tagged with the commit SHA, so every release maps to exact code
+        run: |
+          gcloud auth configure-docker us-west1-docker.pkg.dev --quiet
+          docker build -t "$IMAGE" apps/api
+          docker push "$IMAGE"
+
+      - name: Release on Cloud Run
+        # Keeps the service's existing settings: env vars, secrets,
+        # service account, memory, and instance limits.
+        run: gcloud run deploy "$SERVICE" --image "$IMAGE" --region "$REGION" --quiet
+
+      - name: Check the live service is healthy
+        run: |
+          serviceUrl=$(gcloud run services describe "$SERVICE" --region "$REGION" --format 'value(status.url)')
+          for attempt in $(seq 1 10); do
+            if curl -fsS "$serviceUrl/health"; then
+              echo
+              echo "Deployed and healthy: $serviceUrl"
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "Deployed revision is not responding on /health"
           exit 1
