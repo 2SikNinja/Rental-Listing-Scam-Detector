@@ -24,19 +24,28 @@ param(
     [string]$deployBranch = "master"
 )
 
-$ErrorActionPreference = "Stop"
+# "Continue", not "Stop": gcloud writes normal progress and expected
+# "not found" messages to stderr, and Windows PowerShell 5.1 turns any
+# stderr text into a fatal error under "Stop". Success or failure is
+# decided by each command's exit code ($LASTEXITCODE) instead.
+$ErrorActionPreference = "Continue"
 
 function Test-GcloudResource {
     param([scriptblock]$describeCommand)
-    & $describeCommand *> $null
+    & $describeCommand 2>&1 | Out-Null
     return ($LASTEXITCODE -eq 0)
 }
 
 function Invoke-Gcloud {
     param([string]$stepName, [scriptblock]$command)
     Write-Host "==> $stepName" -ForegroundColor Cyan
-    & $command
-    if ($LASTEXITCODE -ne 0) { throw "Failed: $stepName" }
+    # Capture everything gcloud prints and only show it if the step fails,
+    # so normal progress messages don't look like errors.
+    $commandOutput = & $command 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        $commandOutput | ForEach-Object { Write-Host $_ -ForegroundColor Red }
+        throw "Failed: $stepName"
+    }
 }
 
 $projectId = (gcloud config get-value project 2>$null).Trim()
@@ -105,22 +114,22 @@ if (-not (Test-GcloudResource { gcloud artifacts repositories describe $registry
 
 Invoke-Gcloud "Allowing deployer to push images (this registry only)" {
     gcloud artifacts repositories add-iam-policy-binding $registryRepo --location $region `
-        --member "serviceAccount:$deployerEmail" --role roles/artifactregistry.writer --quiet *> $null
+        --member "serviceAccount:$deployerEmail" --role roles/artifactregistry.writer --quiet
 }
 
 Invoke-Gcloud "Allowing deployer to release new Cloud Run revisions" {
     gcloud projects add-iam-policy-binding $projectId `
-        --member "serviceAccount:$deployerEmail" --role roles/run.developer --condition None --quiet *> $null
+        --member "serviceAccount:$deployerEmail" --role roles/run.developer --condition None --quiet
 }
 
 Invoke-Gcloud "Allowing deployer to run the service as its existing identity" {
     gcloud iam service-accounts add-iam-policy-binding $runtimeEmail `
-        --member "serviceAccount:$deployerEmail" --role roles/iam.serviceAccountUser --quiet *> $null
+        --member "serviceAccount:$deployerEmail" --role roles/iam.serviceAccountUser --quiet
 }
 
 Invoke-Gcloud "Allowing GitHub ($githubRepo) to act as the deployer" {
     gcloud iam service-accounts add-iam-policy-binding $deployerEmail `
-        --member "$githubPrincipal" --role roles/iam.workloadIdentityUser --quiet *> $null
+        --member "$githubPrincipal" --role roles/iam.workloadIdentityUser --quiet
 }
 
 # ---------------------------------------------------------------------
