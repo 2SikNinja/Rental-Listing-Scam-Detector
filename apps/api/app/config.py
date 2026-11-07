@@ -43,10 +43,15 @@ class Settings(BaseSettings):
     contactHashSecret: SecretStr = Field(validation_alias="CONTACT_HASH_SECRET")
 
     # External services
-    geocodingProvider: Literal["census", "google", "mapbox"] = Field(
-        default="census", validation_alias="GEOCODING_PROVIDER"
+    # "census" is the free U.S. Census geocoder. "none" turns address lookups off
+    # (tests use it so they never call the internet).
+    geocodingProvider: Literal["census", "none"] = Field(default="census", validation_alias="GEOCODING_PROVIDER")
+    # Optional: RentCast API key enables the "listed for sale" check
+    rentcastApiKey: SecretStr | None = Field(default=None, validation_alias="RENTCAST_API_KEY")
+    # Upper limit for any single call to an outside service
+    externalRequestTimeoutSeconds: float = Field(
+        default=4.0, gt=0, le=15, validation_alias="EXTERNAL_REQUEST_TIMEOUT_SECONDS"
     )
-    geocodingApiKey: SecretStr | None = Field(default=None, validation_alias="GEOCODING_API_KEY")
     twilioAccountSid: str | None = Field(default=None, validation_alias="TWILIO_ACCOUNT_SID")
     twilioAuthToken: SecretStr | None = Field(default=None, validation_alias="TWILIO_AUTH_TOKEN")
     llmEnabled: bool = Field(default=False, validation_alias="LLM_ENABLED")
@@ -116,9 +121,6 @@ class Settings(BaseSettings):
         hasTwilioToken = self.twilioAuthToken is not None
         if hasTwilioSid != hasTwilioToken:
             raise ValueError("Set both TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN, or neither")
-
-        if self.geocodingProvider != "census" and self.geocodingApiKey is None:
-            raise ValueError(f"GEOCODING_PROVIDER={self.geocodingProvider} requires GEOCODING_API_KEY")
 
         if self.appEnv == "production" and "localhost" in self.corsAllowedOriginsRaw:
             raise ValueError("CORS_ALLOWED_ORIGINS must not include localhost in production")

@@ -19,6 +19,7 @@ from psycopg_pool import ConnectionPool
 import pytest
 
 from app.db import getConnectionPool
+from app.dependencies import getGeocoder, getPhoneLineTypeLookup, getSaleListingLookup
 from app.main import app
 from app.scoring.engine import getScoringConfig
 from app.security.rateLimit import SlidingWindowRateLimiter, getRateLimiter
@@ -57,6 +58,8 @@ def useTestDependencies(apiPool):
     app.dependency_overrides[getMarketRentProvider] = lambda: FakeMarketRentProvider(zipCode="91101")
     app.dependency_overrides[getScoringConfig] = lambda: testConfig
     app.dependency_overrides[getRateLimiter] = lambda: SlidingWindowRateLimiter(maxRequests=10_000)
+    for externalDependency in (getGeocoder, getSaleListingLookup, getPhoneLineTypeLookup):
+        app.dependency_overrides[externalDependency] = lambda: None
     yield
     app.dependency_overrides.clear()
 
@@ -169,3 +172,42 @@ def testPhotoHashesAreStoredButNotImages():
         "select length(p.phash), length(p.dhash), p.width_px from public.listing_photos p "
         "join public.analyses a on a.listing_id = p.listing_id where a.id = %s", (body["analysisId"],))
     assert storedRows == [(64, 64, 800)]
+
+
+# ---------------------------------------------------------------------
+# Reused contacts and copied descriptions (real hash and trigram queries)
+# ---------------------------------------------------------------------
+def signalCodes(body: dict) -> set[str]:
+    return {signal["signalCode"] for signal in body["signals"]}
+
+
+def testReusedPhoneAtDifferentAddressIsFlagged():
+    uniquePhone = f"818555{uuid.uuid4().int % 10000:04d}"
+    first = {**scamListing, "title": None, "description": "Cozy studio near the park, available next month.",
+             "address": {"street": "1 First St", "zipCode": "91101"}, "contact": {"phone": uniquePhone}}
+    assert "CONTACT_REUSED_ELSEWHERE" not in signalCodes(client.post("/analyze", json=first).json())
+
+    second = {**first, "address": {"street": "77 Other Ave", "zipCode": "94063"}}
+    assert "CONTACT_REUSED_ELSEWHERE" in signalCodes(client.post("/analyze", json=second).json())
+
+
+def testCopiedDescriptionAtDifferentAddressIsFlagged():
+    # Two long random markers keep each test run's text well under the 85%
+    # similarity line versus earlier runs still sitting in the database.
+    firstMarker, secondMarker = uuid.uuid4().hex, uuid.uuid4().hex
+    originalText = (f"Charming craftsman bungalow {firstMarker} with a sunny backyard, hardwood floors throughout, "
+                    f"a renovated kitchen {secondMarker} with quartz counters, and a detached garage on a quiet street.")
+    original = {**scamListing, "title": None, "contact": {}, "description": originalText,
+                "address": {"street": "5 Elm St", "zipCode": "91101"}}
+    assert "DESCRIPTION_REUSED_ELSEWHERE" not in signalCodes(client.post("/analyze", json=original).json())
+
+    # Lightly edited copy (a few words changed) at another address
+    copiedText = originalText.replace("sunny backyard", "large sunny backyard").replace("quiet street", "quiet block")
+    copied = {**original, "description": copiedText, "address": {"street": "88 Pine Rd", "zipCode": "90012"}}
+    copiedBody = client.post("/analyze", json=copied).json()
+    assert "DESCRIPTION_REUSED_ELSEWHERE" in signalCodes(copiedBody)
+
+    # The original owner reposting at the original address must not be
+    # penalized just because someone else copied their text afterward
+    repostBody = client.post("/analyze", json=original).json()
+    assert "DESCRIPTION_REUSED_ELSEWHERE" not in signalCodes(repostBody)

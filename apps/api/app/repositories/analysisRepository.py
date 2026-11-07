@@ -29,6 +29,7 @@ def saveAnalysis(
     scoreResult: ScoreResult,
     durationMs: int,
     photoHashes: list[PhotoHashes] | None = None,
+    lineTypesByHash: dict[str, str] | None = None,
 ) -> uuid.UUID:
     """Insert everything for one analysis. Returns the new listing ID."""
     with connection.transaction(), connection.cursor() as cursor:
@@ -62,11 +63,12 @@ def saveAnalysis(
         if redactedListing.contacts:
             cursor.executemany(
                 """
-                insert into public.listing_contacts (listing_id, kind, value_hmac, email_domain)
-                values (%s, %s, %s, %s)
+                insert into public.listing_contacts (listing_id, kind, value_hmac, email_domain, phone_line_type)
+                values (%s, %s, %s, %s, %s)
                 """,
                 [
-                    (listingId, contact.kind, contact.valueHmac, contact.emailDomain)
+                    (listingId, contact.kind, contact.valueHmac, contact.emailDomain,
+                     (lineTypesByHash or {}).get(contact.valueHmac) if contact.kind == "phone" else None)
                     for contact in redactedListing.contacts
                 ],
             )

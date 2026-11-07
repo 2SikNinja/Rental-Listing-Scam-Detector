@@ -6,7 +6,7 @@
 # version that produced it, so old and new results can be compared.
 # =====================================================================
 
-version: "2026-11-07.1"
+version: "2026-11-07.2"
 
 # Base points for each signal, by severity
 severityPoints:
@@ -30,6 +30,11 @@ signalPointOverrides:
   # The same photos posted under a different address or contact is one
   # of the clearest signs of a copied listing.
   PHOTO_REUSED_ELSEWHERE: 40
+  # Advertising a home that is listed for sale as a rental is a classic
+  # scam setup (2 of the 4 October 2026 news cases).
+  ADDRESS_LISTED_FOR_SALE: 35
+  # Many honest businesses use VoIP numbers, so this only adds context.
+  VOIP_PHONE_NUMBER: 10
 
 # Upper limit on points from any single check. Without this, a listing
 # that repeats several scam phrases could reach "high" from wording
@@ -46,4 +51,6 @@ riskThresholds:
 # Otherwise the result is "insufficient data": the absence of red flags
 # is not evidence of safety if most checks could not run. Medium and
 # high results are always shown, because the flags found are real.
-minimumChecksForLowRisk: 2
+# Raised from 2 to 3 when the address and contact checks were added (5 checks
+# in total), so two thin checks alone can't produce a "low risk" result.
+minimumChecksForLowRisk: 3

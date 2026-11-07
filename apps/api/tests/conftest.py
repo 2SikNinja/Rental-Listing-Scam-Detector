@@ -16,6 +16,8 @@ testEnvironment = {
     "CONTACT_HASH_SECRET": "b" * 64,
     "CORS_ALLOWED_ORIGINS": "http://localhost:3000",
     "LLM_ENABLED": "false",
+    # Tests must never call real outside services
+    "GEOCODING_PROVIDER": "none",
 }
 
 for envName, envValue in testEnvironment.items():

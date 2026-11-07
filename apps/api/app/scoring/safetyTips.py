@@ -20,6 +20,14 @@ signalTips: dict[str, str] = {
     "OFF_PLATFORM_CONTACT": "Keep conversations on the listing site, where fraud reporting and records are available.",
     "PERSONAL_INFO_REQUEST": "Share your Social Security number or bank details only on a formal application after you have toured the unit.",
     "PHOTO_REUSED_ELSEWHERE": "Run the photos through a reverse image search (Google Lens or TinEye) to see where else they appear.",
+    "ADDRESS_LISTED_FOR_SALE": "Find the for-sale listing and call that listing agent directly to ask whether the home is really for rent.",
+    "ADDRESS_RECENTLY_FOR_SALE": "Check county property records to confirm who owns the home now.",
+    "ADDRESS_NOT_FOUND": "Look the address up on a map and street view to confirm the building exists.",
+    "ADDRESS_ZIP_MISMATCH": "Confirm the exact address with the landlord and check it on a map.",
+    "DISPOSABLE_EMAIL": "Ask for a way to reach the landlord that can be verified, such as a property management company's main office number.",
+    "VOIP_PHONE_NUMBER": "Ask for an in-person or live video meeting, since an internet phone number alone doesn't confirm who you are talking to.",
+    "CONTACT_REUSED_ELSEWHERE": "Search the phone number and email online to see what other listings or reports mention them.",
+    "DESCRIPTION_REUSED_ELSEWHERE": "Search a sentence from the description online to find the original listing and compare the details.",
     "URGENCY_PRESSURE": "Take your time. Pressure to decide quickly is meant to stop you from checking details.",
 }
 

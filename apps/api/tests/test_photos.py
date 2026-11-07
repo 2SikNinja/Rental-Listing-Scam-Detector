@@ -188,3 +188,19 @@ def testSkippedWithoutDatabase():
     submission = ListingSubmission(description="A normal apartment listing description here.")
     outcome = runPhotoCheck(submission, [hashesFromBytes(sceneBytes(1))], frozenset(), None)
     assert outcome.ran is False and "database" in outcome.skipReason
+
+
+def testPhotoOwnerIsNotPenalizedWhenOthersCopiedLater():
+    original = PhotoMatch(0, uuid.uuid4(), "91101", "10 Main St", frozenset({"abc"}),
+                          datetime(2026, 9, 1, tzinfo=timezone.utc))
+    laterCopy = PhotoMatch(0, uuid.uuid4(), "94063", "9 Oak Ave", frozenset({"xyz"}),
+                           datetime(2026, 10, 15, tzinfo=timezone.utc))
+    outcome = runCheck([original, laterCopy])
+    assert outcome.signals[0].signalCode == "PHOTO_SEEN_BEFORE_SAME_DETAILS"
+
+
+def testPhotoCopyIsFlaggedWhenOtherListingWasFirst():
+    otherFirst = PhotoMatch(0, uuid.uuid4(), "94063", "9 Oak Ave", frozenset({"xyz"}),
+                            datetime(2026, 9, 1, tzinfo=timezone.utc))
+    outcome = runCheck([otherFirst])
+    assert outcome.signals[0].signalCode == "PHOTO_REUSED_ELSEWHERE"

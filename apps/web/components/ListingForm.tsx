@@ -182,7 +182,9 @@ export default function ListingForm() {
           <div>
             <label htmlFor="street" className={labelClassName}>Street</label>
             <input id="street" className={inputClassName} maxLength={300} autoComplete="off"
-              value={formValues.street} onChange={(changeEvent) => updateField("street", changeEvent.target.value)} />
+              value={formValues.street} onChange={(changeEvent) => updateField("street", changeEvent.target.value)}
+              placeholder="123 Main St" />
+            <p className="mt-1 text-xs text-zinc-500">Used to check that the address exists and isn&apos;t listed for sale.</p>
           </div>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <div>

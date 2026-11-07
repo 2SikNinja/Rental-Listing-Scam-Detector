@@ -13,7 +13,7 @@ Rules (matching the database schema):
     lives outside the database, which makes that attack impossible.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import hashlib
 import hmac
 import re
@@ -44,6 +44,9 @@ class RedactedListing:
     descriptionRedacted: str
     descriptionFingerprint: str
     contacts: list[HashedContact]
+    # Raw phone digits keyed by their hash, for the optional line-type
+    # lookup. Kept in memory for this request only and never saved.
+    phoneDigitsByHash: dict[str, str] = field(default_factory=dict)
 
 
 def normalizePhoneDigits(rawPhone: str) -> str:
@@ -101,9 +104,11 @@ def prepareListingForStorage(submission: ListingSubmission, secretKey: str) -> R
 
     for email in allEmails:
         addContact("email", email, email.rsplit("@", 1)[-1])
+    phoneDigitsByHash: dict[str, str] = {}
     for phone in allPhones:
         if 10 <= len(phone) <= 15:
             addContact("phone", phone)
+            phoneDigitsByHash.setdefault(hashContactValue("phone", phone, secretKey), phone)
     if submission.contact.name:
         addContact("name", re.sub(r"\s+", " ", submission.contact.name.strip().lower()))
 
@@ -112,4 +117,5 @@ def prepareListingForStorage(submission: ListingSubmission, secretKey: str) -> R
         descriptionRedacted=redactedDescription,
         descriptionFingerprint=fingerprintDescription(redactedDescription),
         contacts=contacts,
+        phoneDigitsByHash=phoneDigitsByHash,
     )

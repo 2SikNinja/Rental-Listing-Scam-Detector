@@ -64,12 +64,23 @@ def runPhotoCheck(
     suspiciousPhotos: set[int] = set()
     suspiciousListings: set = set()
     differenceReasons: set[str] = set()
+    suspiciousFirstSeen = []
+    sameDetailsFirstSeen = []
     for match in matches:
         differences = describeDifferences(match, submission, contactHashes)
         if differences:
             suspiciousPhotos.add(match.uploadedPhotoIndex)
             suspiciousListings.add(match.listingId)
             differenceReasons.update(differences)
+            suspiciousFirstSeen.append(match.firstSeenAt)
+        else:
+            sameDetailsFirstSeen.append(match.firstSeenAt)
+
+    # If a listing with THESE details had the photos first, this is most
+    # likely the original owner, and the other listings copied them. The
+    # original must not be penalized for having been copied.
+    if suspiciousPhotos and sameDetailsFirstSeen and min(sameDetailsFirstSeen) < min(suspiciousFirstSeen):
+        suspiciousPhotos.clear()
 
     earliestSeen = min(match.firstSeenAt for match in matches).date().isoformat()
     matchedPhotoCount = len({match.uploadedPhotoIndex for match in matches})

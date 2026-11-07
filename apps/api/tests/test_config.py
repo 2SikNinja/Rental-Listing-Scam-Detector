@@ -31,7 +31,7 @@ def clearRealEnvironment(monkeypatch):
     """Remove any real env vars so they can't leak into a test."""
     envNames = [
         "APP_ENV", "DATABASE_URL", "SUPABASE_URL", "CONTACT_HASH_SECRET",
-        "GEOCODING_PROVIDER", "GEOCODING_API_KEY", "TWILIO_ACCOUNT_SID",
+        "GEOCODING_PROVIDER", "RENTCAST_API_KEY", "TWILIO_ACCOUNT_SID",
         "TWILIO_AUTH_TOKEN", "LLM_ENABLED", "LLM_API_KEY", "CORS_ALLOWED_ORIGINS",
     ]
     for envName in envNames:
@@ -112,8 +112,8 @@ def testTwilioEnabledWhenBothSet():
     assert settings.twilioEnabled is True
 
 
-def testPaidGeocoderWithoutKeyFails():
-    with pytest.raises(ValidationError, match="GEOCODING_API_KEY"):
+def testUnsupportedGeocoderIsRejected():
+    with pytest.raises(ValidationError):
         buildSettings(geocodingProvider="google")
 
 

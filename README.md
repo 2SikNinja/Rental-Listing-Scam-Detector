@@ -19,10 +19,10 @@ Rental scams cost renters tens of millions of dollars a year, according to FTC r
 | Check | What it looks for | Status |
 |---|---|---|
 | **Price** | Rent far below typical rent for the ZIP code and bedroom count, using HUD's FY2027 Small Area Fair Market Rents (about 38,600 ZIP codes) | ✅ Live |
-| **Text** | Common scam wording: owner overseas, can't show the unit, keys mailed, payment before viewing, wire/gift card/crypto payment, off-platform contact, urgency | ✅ Live |
+| **Text** | Common scam wording (owner overseas, can't show the unit, keys mailed, payment before viewing, wire/gift card/crypto payment, off-platform contact, urgency), plus near-copies of earlier listings' text at a different address (Postgres trigram similarity) | ✅ Live |
 | **Photos** | Perceptual hashes (pHash and dHash) to catch photos reused under a different address or contact, even after resizing or recompressing | ✅ Live |
-| **Address** | Whether the address exists and appears to be listed for sale | 🔜 Planned |
-| **Contact** | Throwaway email domains and VoIP phone numbers | 🔜 Planned |
+| **Address** | Whether the street address exists (U.S. Census geocoder, free) and, with an optional RentCast key, whether the home is listed **for sale** | ✅ Live |
+| **Contact** | Throwaway email domains (10,000+ domain public list), VoIP numbers (optional Twilio Lookup), and the same phone or email reused at different addresses (compared by keyed hash) | ✅ Live |
 
 Every flag on the results page shows **why** it was raised, for example:
 
@@ -40,6 +40,10 @@ flowchart LR
     api -- "least-privilege role" --> db[(Supabase Postgres<br/>hashes, results)]
     secrets[(Secret Manager)] -. injected at runtime .-> api
 ```
+
+The slow checks (database lookups and outside APIs) run in parallel, each with a short timeout. If one outside service is down, only that check is skipped, with a reason shown to the user.
+
+**Copied listings are judged by who was first.** When the same photos or text appear at two addresses, the address that posted them first is treated as the likely original, so an owner whose listing was copied isn't flagged when they repost it.
 
 The backend is built in clear layers, so each part can change or be tested on its own:
 
@@ -126,7 +130,7 @@ GitHub signs in to Google Cloud through **Workload Identity Federation**: each r
 4. ~~Scoring engine and results page~~
 5. ~~CI, deployment, working MVP~~
 6. ~~Photo hashing and duplicate detection~~
-7. Address and contact checks
+7. ~~Address and contact checks~~
 8. Labeled test set and accuracy evaluation
 9. Chrome extension that checks the listing you are viewing (no bulk scraping)
 10. Analytics on common scam patterns by area

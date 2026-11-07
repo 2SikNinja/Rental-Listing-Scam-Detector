@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 import pytest
 
 from app.main import app
+from app.dependencies import getGeocoder, getPhoneLineTypeLookup, getSaleListingLookup
 from app.scoring.engine import getScoringConfig
 from app.security.rateLimit import SlidingWindowRateLimiter, getRateLimiter
 from app.services.marketRents import getMarketRentProvider
@@ -28,6 +29,8 @@ def useFakeDependencies():
     app.dependency_overrides[getScoringConfig] = lambda: testConfig
     # Rate limiting has its own tests; here it would throttle the many requests
     app.dependency_overrides[getRateLimiter] = lambda: SlidingWindowRateLimiter(maxRequests=10_000)
+    for externalDependency in (getGeocoder, getSaleListingLookup, getPhoneLineTypeLookup):
+        app.dependency_overrides[externalDependency] = lambda: None  # never call real outside services
     yield
     app.dependency_overrides.clear()
 
@@ -103,14 +106,18 @@ def testSkippedPriceCheckExplainsWhy():
 
 
 def testMissingPriceDataGivesInsufficientDataNotLow():
-    listingWithoutRent = {key: value for key, value in validListing.items() if key != "monthlyRent"}
+    # Only the text check can run: no rent (price), no contacts, no street, no photos
+    listingWithoutRent = {key: value for key, value in validListing.items() if key not in ("monthlyRent", "contact")}
     body = client.post("/analyze", json=listingWithoutRent).json()
     assert body["riskLevel"] == "insufficient_data"
 
 
-def testFutureChecksExplainTheyAreNotAvailable():
+def testEverySkippedCheckSaysWhy():
+    """'Couldn't check' must never look like 'nothing found'."""
     body = client.post("/analyze", json=validListing).json()
-    assert body["skipReasons"]["address"] == "This check is not available yet."
+    assert body["checksSkipped"], "this listing has no photos or street, so some checks must skip"
+    for checkName in body["checksSkipped"]:
+        assert body["skipReasons"][checkName]
 
 
 def testResponseIncludesScoringVersionAndThresholds():
@@ -214,3 +221,20 @@ def testUploadReportsListingErrorsWithSameFieldPaths():
 def testUploadRejectsMalformedListingJson():
     response = client.post("/analyze/upload", data={"listing": "{not json"})
     assert response.status_code == 422
+
+
+def testOutsideServiceOutageOnlySkipsThatCheck():
+    """If the geocoder is down, the address check says so and everything else still runs."""
+    from app.services.externalLookups import ExternalLookupError
+
+    class BrokenGeocoder:
+        def geocode(self, street, city, stateCode, zipCode):
+            raise ExternalLookupError("Census geocoder request failed")
+
+    app.dependency_overrides[getGeocoder] = lambda: BrokenGeocoder()
+    listingWithStreet = {**validListing, "address": {**validListing["address"], "street": "123 Main St"}}
+    response = client.post("/analyze", json=listingWithStreet)
+    assert response.status_code == 200
+    body = response.json()
+    assert "temporarily unavailable" in body["skipReasons"]["address"]
+    assert {"price", "text", "contact"} <= set(body["checksRun"])

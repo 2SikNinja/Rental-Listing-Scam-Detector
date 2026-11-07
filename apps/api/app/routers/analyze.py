@@ -12,8 +12,11 @@ the photo check. The router only coordinates:
   4. build the response, including safety tips and skip reasons
 """
 
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 import logging
 import time
+from typing import Callable
 import uuid
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
@@ -21,20 +24,31 @@ from fastapi.exceptions import RequestValidationError
 from psycopg_pool import ConnectionPool
 from pydantic import ValidationError
 
+from app.checks.addressCheck import runAddressCheck
 from app.checks.base import CheckOutcome
+from app.checks.contactCheck import findDescriptionReuseSignals, runContactCheck
 from app.checks.photoCheck import runPhotoCheck
 from app.checks.priceCheck import runPriceCheck
 from app.checks.textCheck import runTextCheck
 from app.config import getSettings
 from app.db import getConnectionPool
+from app.dependencies import (
+    getCrossListingFinder,
+    getGeocoder,
+    getPhoneLineTypeLookup,
+    getPhotoMatcher,
+    getSaleListingLookup,
+)
 from app.repositories.analysisRepository import saveAnalysis
-from app.repositories.photoRepository import PhotoMatcher, PostgresPhotoMatcher
+from app.repositories.crossListingRepository import CrossListingFinder
+from app.repositories.photoRepository import PhotoMatcher
 from app.schemas.listing import AnalysisResult, CheckName, ListingSubmission, SignalOut
 from app.scoring.engine import ScoringConfig, getScoringConfig, scoreOutcomes
 from app.scoring.safetyTips import buildSafetyTips
 from app.security.privacy import prepareListingForStorage
 from app.security.rateLimit import enforceRateLimit
 from app.security.uploadValidation import PhotoRejected, validatePhoto
+from app.services.externalLookups import Geocoder, PhoneLineTypeLookup, SaleListingLookup
 from app.services.marketRents import MarketRentProvider, getMarketRentProvider
 from app.services.photoHashing import PhotoHashes, hashPhoto
 
@@ -43,52 +57,99 @@ logger = logging.getLogger(__name__)
 
 allCheckNames: list[CheckName] = ["price", "text", "photo", "address", "contact"]
 
-# Checks that are planned but not built yet, so skipped results say why
-notYetAvailableReason = "This check is not available yet."
-photoCheckUnavailableReason = "Photo comparison is temporarily unavailable."
+temporarilyUnavailableReason = "This check is temporarily unavailable. Please try again later."
 
 
-def getPhotoMatcher(connectionPool: ConnectionPool | None = Depends(getConnectionPool)) -> PhotoMatcher | None:
-    return PostgresPhotoMatcher(connectionPool) if connectionPool is not None else None
+@dataclass(frozen=True)
+class AnalysisSources:
+    """Every outside data source one analysis may use. Any of them can be None (not configured)."""
+
+    marketRentProvider: MarketRentProvider
+    scoringConfig: ScoringConfig
+    connectionPool: ConnectionPool | None
+    photoMatcher: PhotoMatcher | None
+    crossListingFinder: CrossListingFinder | None
+    geocoder: Geocoder | None
+    saleListingLookup: SaleListingLookup | None
+    phoneLineTypeLookup: PhoneLineTypeLookup | None
 
 
-def runAnalysis(
-    submission: ListingSubmission,
-    photoHashes: list[PhotoHashes],
-    marketRentProvider: MarketRentProvider,
-    scoringConfig: ScoringConfig,
-    connectionPool: ConnectionPool | None,
-    photoMatcher: PhotoMatcher | None,
-) -> AnalysisResult:
+def getAnalysisSources(
+    marketRentProvider: MarketRentProvider = Depends(getMarketRentProvider),
+    scoringConfig: ScoringConfig = Depends(getScoringConfig),
+    connectionPool: ConnectionPool | None = Depends(getConnectionPool),
+    photoMatcher: PhotoMatcher | None = Depends(getPhotoMatcher),
+    crossListingFinder: CrossListingFinder | None = Depends(getCrossListingFinder),
+    geocoder: Geocoder | None = Depends(getGeocoder),
+    saleListingLookup: SaleListingLookup | None = Depends(getSaleListingLookup),
+    phoneLineTypeLookup: PhoneLineTypeLookup | None = Depends(getPhoneLineTypeLookup),
+) -> AnalysisSources:
+    return AnalysisSources(marketRentProvider, scoringConfig, connectionPool, photoMatcher,
+                           crossListingFinder, geocoder, saleListingLookup, phoneLineTypeLookup)
+
+
+def runSafely(checkName: CheckName, analysisId: uuid.UUID, checkFunction: Callable[[], CheckOutcome]) -> CheckOutcome:
+    """An outage in one lookup costs that one check, never the whole analysis."""
+    try:
+        return checkFunction()
+    except Exception:
+        logger.exception("%s check failed for analysis %s", checkName, analysisId)
+        return CheckOutcome(checkName=checkName, ran=False, skipReason=temporarilyUnavailableReason)
+
+
+def runAnalysis(submission: ListingSubmission, photoHashes: list[PhotoHashes], sources: AnalysisSources) -> AnalysisResult:
     startTime = time.perf_counter()
     analysisId = uuid.uuid4()
     redactedListing = prepareListingForStorage(submission, getSettings().contactHashSecret.get_secret_value())
     contactHashes = frozenset(
         contact.valueHmac for contact in redactedListing.contacts if contact.kind in ("email", "phone")
     )
+    lineTypesByHash: dict[str, str] = {}
 
-    try:
-        photoOutcome = runPhotoCheck(submission, photoHashes, contactHashes, photoMatcher)
-    except Exception:
-        # A database hiccup should cost one check, not the whole analysis
-        logger.exception("Photo check failed for analysis %s", analysisId)
-        photoOutcome = CheckOutcome(checkName="photo", ran=False, skipReason=photoCheckUnavailableReason)
+    def contactCheck() -> CheckOutcome:
+        outcome, foundLineTypes = runContactCheck(
+            submission, redactedListing, sources.crossListingFinder, sources.phoneLineTypeLookup
+        )
+        lineTypesByHash.update(foundLineTypes)
+        return outcome
 
-    checkOutcomes: list[CheckOutcome] = [
-        runPriceCheck(submission, marketRentProvider),
-        runTextCheck(submission),
-        photoOutcome,
-    ]
+    def textCheck() -> CheckOutcome:
+        # Wording rules run in memory; copied-description matching needs the database
+        wordingOutcome = runTextCheck(submission)
+        try:
+            reuseSignals = findDescriptionReuseSignals(submission, redactedListing, sources.crossListingFinder)
+        except Exception:
+            logger.exception("Description reuse lookup failed for analysis %s", analysisId)
+            reuseSignals = []
+        return CheckOutcome(checkName="text", ran=True, signals=[*wordingOutcome.signals, *reuseSignals])
+
+    # The slow checks (database queries, outside APIs) run at the same time,
+    # so total wait is the slowest one, not the sum of all of them.
+    with ThreadPoolExecutor(max_workers=4) as checkExecutor:
+        futureOutcomes = [
+            checkExecutor.submit(runSafely, "text", analysisId, textCheck),
+            checkExecutor.submit(runSafely, "photo", analysisId,
+                                 lambda: runPhotoCheck(submission, photoHashes, contactHashes, sources.photoMatcher)),
+            checkExecutor.submit(runSafely, "address", analysisId,
+                                 lambda: runAddressCheck(submission, sources.geocoder, sources.saleListingLookup)),
+            checkExecutor.submit(runSafely, "contact", analysisId, contactCheck),
+        ]
+        checkOutcomes: list[CheckOutcome] = [
+            runPriceCheck(submission, sources.marketRentProvider),
+            *(future.result() for future in futureOutcomes),
+        ]
+    scoringConfig = sources.scoringConfig
     scoreResult = scoreOutcomes(checkOutcomes, scoringConfig)
 
     # Saving is best effort: if the database is down, the user still gets
     # their result. The failure is logged (without any listing content).
     wasSaved = False
-    if connectionPool is not None:
+    if sources.connectionPool is not None:
         try:
             durationMs = round((time.perf_counter() - startTime) * 1000)
-            with connectionPool.connection() as connection:
-                saveAnalysis(connection, analysisId, submission, redactedListing, scoreResult, durationMs, photoHashes)
+            with sources.connectionPool.connection() as connection:
+                saveAnalysis(connection, analysisId, submission, redactedListing, scoreResult, durationMs,
+                             photoHashes, lineTypesByHash)
             wasSaved = True
         except Exception:
             logger.exception("Could not save analysis %s", analysisId)
@@ -100,8 +161,6 @@ def runAnalysis(
     for outcome in checkOutcomes:
         if not outcome.ran and outcome.skipReason:
             skipReasons[outcome.checkName] = outcome.skipReason
-    for checkName in checksSkipped:
-        skipReasons.setdefault(checkName, notYetAvailableReason)
 
     return AnalysisResult(
         analysisId=analysisId,
@@ -134,10 +193,7 @@ def runAnalysis(
 @router.post("/analyze", response_model=AnalysisResult, dependencies=[Depends(enforceRateLimit)])
 def analyzeListing(
     submission: ListingSubmission,
-    marketRentProvider: MarketRentProvider = Depends(getMarketRentProvider),
-    scoringConfig: ScoringConfig = Depends(getScoringConfig),
-    connectionPool: ConnectionPool | None = Depends(getConnectionPool),
-    photoMatcher: PhotoMatcher | None = Depends(getPhotoMatcher),
+    sources: AnalysisSources = Depends(getAnalysisSources),
 ) -> AnalysisResult:
     """
     Analyze a listing sent as JSON (no photos).
@@ -145,7 +201,7 @@ def analyzeListing(
     FastAPI validates `submission` before this runs and injects the data
     sources, so tests can replace any of them with a small fake.
     """
-    return runAnalysis(submission, [], marketRentProvider, scoringConfig, connectionPool, photoMatcher)
+    return runAnalysis(submission, [], sources)
 
 
 def photoError(photoIndex: int, message: str) -> HTTPException:
@@ -160,10 +216,7 @@ def photoError(photoIndex: int, message: str) -> HTTPException:
 def analyzeListingWithPhotos(
     listing: str = Form(..., max_length=60_000, description="The listing, as the same JSON /analyze accepts"),
     photos: list[UploadFile] = File(default=[]),
-    marketRentProvider: MarketRentProvider = Depends(getMarketRentProvider),
-    scoringConfig: ScoringConfig = Depends(getScoringConfig),
-    connectionPool: ConnectionPool | None = Depends(getConnectionPool),
-    photoMatcher: PhotoMatcher | None = Depends(getPhotoMatcher),
+    sources: AnalysisSources = Depends(getAnalysisSources),
 ) -> AnalysisResult:
     """
     Analyze a listing with photos (multipart form).
@@ -205,4 +258,4 @@ def analyzeListingWithPhotos(
             seenFiles.add(hashes.contentSha256)
             photoHashes.append(hashes)
 
-    return runAnalysis(submission, photoHashes, marketRentProvider, scoringConfig, connectionPool, photoMatcher)
+    return runAnalysis(submission, photoHashes, sources)
