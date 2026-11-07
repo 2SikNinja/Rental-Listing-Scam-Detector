@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "Rental Listing Scam Check",
+  "version": "0.1.0",
+  "description": "Check the rental listing you are viewing for common scam warning signs, with an explanation for each.",
+  "action": {
+    "default_title": "Check this rental listing",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "permissions": ["activeTab", "scripting"],
+  "host_permissions": ["https://rental-scam-api-722286305273.us-west1.run.app/*"],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; base-uri 'none'"
+  }
+}

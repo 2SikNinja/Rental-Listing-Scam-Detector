@@ -28,6 +28,10 @@ Every flag on the results page shows **why** it was raised, for example:
 
 > The asking rent of $900 is about 72% below the typical $3,240 for a 2-bedroom unit in ZIP code 92628. Prices far below market are a common lure in rental scams.
 
+## Chrome extension
+
+The [`extension/`](extension/) folder holds a Manifest V3 Chrome extension that checks the listing you're viewing. It reads the page only when you click (the `activeTab` permission), shows you what it found so you can correct it, and only then sends it to the same API. Its only host permission is the analysis API, and results render as plain text so a malicious page can't inject code. CI runs its tests and builds the Chrome Web Store package on every push. See [`extension/README.md`](extension/README.md).
+
 ## Architecture
 
 ```mermaid
@@ -136,7 +140,7 @@ Measured on a labeled set of 37 listings (15 reconstructed from cited 2025 to 20
 6. ~~Photo hashing and duplicate detection~~
 7. ~~Address and contact checks~~
 8. ~~Labeled test set and accuracy evaluation~~
-9. Chrome extension that checks the listing you are viewing (no bulk scraping)
+9. ~~Chrome extension that checks the listing you are viewing (no bulk scraping)~~
 10. Analytics on common scam patterns by area
 
 ## Responsible use

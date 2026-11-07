@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Rental Listing Scam Check</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Rental Listing Scam Check</h1>
+      <p class="muted">A risk assessment, not a verdict.</p>
+    </header>
+
+    <!-- Step 1: read the page (only after the user clicks) -->
+    <section id="startSection">
+      <p>Read the listing on this page and check it for common scam warning signs.</p>
+      <p class="disclosure">
+        When you click below, this page's listing text, price, and address are sent to our analysis server.
+        Nothing is read until you click, and nothing else from your browser is collected.
+        <a id="privacyLink" href="#" target="_blank" rel="noopener">Privacy policy</a>
+      </p>
+      <button id="readPageButton" type="button">Read this listing</button>
+    </section>
+
+    <!-- Step 2: review and edit what was found, then send -->
+    <form id="reviewForm" hidden>
+      <p class="muted">Check what was found and fix anything that's wrong before analyzing.</p>
+      <label>Title <input id="titleInput" maxlength="300" /></label>
+      <label>Description <textarea id="descriptionInput" rows="6" maxlength="20000" required minlength="20"></textarea></label>
+      <div class="row">
+        <label>Rent ($/mo) <input id="rentInput" inputmode="decimal" /></label>
+        <label>Bedrooms <input id="bedroomsInput" type="number" min="0" max="20" /></label>
+      </div>
+      <label>Street <input id="streetInput" maxlength="300" /></label>
+      <div class="row">
+        <label>City <input id="cityInput" maxlength="100" /></label>
+        <label>State <input id="stateInput" maxlength="2" /></label>
+        <label>ZIP <input id="zipInput" maxlength="5" inputmode="numeric" /></label>
+      </div>
+      <p class="muted small" id="extractionNote"></p>
+      <button id="analyzeButton" type="submit">Analyze listing</button>
+    </form>
+
+    <p id="statusMessage" role="status" hidden></p>
+
+    <!-- Step 3: result (rendered with textContent only, never HTML) -->
+    <section id="resultSection" hidden aria-live="polite"></section>
+
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

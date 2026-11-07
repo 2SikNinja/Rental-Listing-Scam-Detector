@@ -115,6 +115,45 @@ jobs:
       - name: Production build
         run: npm run build
 
+  extension:
+    name: Chrome extension
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: extension
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install test dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Check the manifest is valid JSON with the expected permissions
+        run: |
+          node -e '
+            const manifest = require("./manifest.json");
+            const expected = ["activeTab", "scripting"];
+            if (manifest.manifest_version !== 3) throw new Error("must be Manifest V3");
+            if (JSON.stringify(manifest.permissions) !== JSON.stringify(expected)) {
+              throw new Error("permissions changed: " + JSON.stringify(manifest.permissions));
+            }
+            if (manifest.host_permissions.length !== 1) throw new Error("only the API host is allowed");
+            console.log("manifest ok:", manifest.name, manifest.version);
+          '
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build the store package (runtime files only)
+        run: zip -r ../rental-scam-check-extension.zip manifest.json popup.html popup.css popup.js config.js extractListing.js icons
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rental-scam-check-extension
+          path: rental-scam-check-extension.zip
   docker:
     name: Docker image
     runs-on: ubuntu-latest

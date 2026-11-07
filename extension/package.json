@@ -1,0 +1,13 @@
+{
+  "name": "rental-scam-check-extension",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Chrome extension that checks the rental listing you are viewing",
+  "scripts": {
+    "test": "node --test \"tests/**/*.test.js\""
+  },
+  "devDependencies": {
+    "jsdom": "26.1.0"
+  }
+}

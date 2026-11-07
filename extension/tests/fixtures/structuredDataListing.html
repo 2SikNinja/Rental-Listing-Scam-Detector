@@ -1,0 +1,26 @@
+<!doctype html>
+<!-- A listing page that embeds schema.org data for search engines (made-up content) -->
+<html>
+  <head>
+    <title>Apartment for rent | Example Rentals</title>
+    <script type="application/ld+json">{ "this is": "malformed json"</script>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Apartment",
+        "name": "1 Bedroom Apartment with Balcony",
+        "description": "One bedroom apartment with a balcony, updated kitchen, and on-site laundry. Tours available daily through the leasing office.",
+        "numberOfBedrooms": 1,
+        "address": {
+          "@type": "PostalAddress",
+          "streetAddress": "200 Sample St Unit 4",
+          "addressLocality": "Austin",
+          "addressRegion": "tx",
+          "postalCode": "78704-1234"
+        },
+        "offers": { "@type": "Offer", "price": "1750", "priceCurrency": "USD" }
+      }
+    </script>
+  </head>
+  <body><main><h1>1 Bedroom Apartment with Balcony</h1><p>Contact the leasing office.</p></main></body>
+</html>

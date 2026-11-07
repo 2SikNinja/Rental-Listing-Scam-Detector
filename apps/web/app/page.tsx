@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import ListingForm from "@/components/ListingForm";
 
 /**
@@ -16,6 +18,9 @@ export default function Home() {
         </p>
       </header>
       <ListingForm />
+      <footer className="mt-16 border-t border-zinc-200 pt-6 text-sm text-zinc-500 dark:border-zinc-800">
+        <Link className="underline" href="/privacy">Privacy policy</Link>
+      </footer>
     </main>
   );
 }
