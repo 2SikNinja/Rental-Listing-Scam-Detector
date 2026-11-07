@@ -60,6 +60,10 @@ class Settings(BaseSettings):
     # True only when running behind a trusted proxy (Cloud Run), so the
     # client IP is read from X-Forwarded-For. Keep false locally.
     trustProxyHeaders: bool = Field(default=False, validation_alias="TRUST_PROXY_HEADERS")
+    # Cloud Run rejects requests over 32 MB, so all photos together stay well under that
+    maxTotalPhotoBytes: int = Field(
+        default=20 * 1024 * 1024, ge=1, le=30 * 1024 * 1024, validation_alias="MAX_TOTAL_PHOTO_BYTES"
+    )
 
     # Save listings and results to Postgres. Off by default so local
     # development and unit tests need no database.

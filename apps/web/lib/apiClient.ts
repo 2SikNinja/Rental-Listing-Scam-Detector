@@ -45,16 +45,27 @@ function parseValidationErrors(responseBody: unknown): FieldError[] {
   }));
 }
 
-export async function analyzeListing(submission: ListingSubmission): Promise<AnalysisResult> {
+/**
+ * Sends the listing and any photos as one multipart form to
+ * POST /analyze/upload. The listing goes in a "listing" field as JSON,
+ * so the API validates it exactly like the plain JSON endpoint.
+ */
+export async function analyzeListing(submission: ListingSubmission, photos: File[] = []): Promise<AnalysisResult> {
   const abortController = new AbortController();
   const timeoutId = setTimeout(() => abortController.abort(), requestTimeoutMs);
 
+  const formData = new FormData();
+  formData.append("listing", JSON.stringify(submission));
+  for (const photo of photos) {
+    formData.append("photos", photo);
+  }
+
   let response: Response;
   try {
-    response = await fetch(`${apiBaseUrl}/analyze`, {
+    // No Content-Type header: the browser sets multipart/form-data with the right boundary
+    response = await fetch(`${apiBaseUrl}/analyze/upload`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(submission),
+      body: formData,
       signal: abortController.signal,
     });
   } catch (networkError) {

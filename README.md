@@ -20,7 +20,7 @@ Rental scams cost renters tens of millions of dollars a year, according to FTC r
 |---|---|---|
 | **Price** | Rent far below typical rent for the ZIP code and bedroom count, using HUD's FY2027 Small Area Fair Market Rents (about 38,600 ZIP codes) | ✅ Live |
 | **Text** | Common scam wording: owner overseas, can't show the unit, keys mailed, payment before viewing, wire/gift card/crypto payment, off-platform contact, urgency | ✅ Live |
-| **Photos** | Perceptual hashes to catch photos reused across listings | 🔜 Planned |
+| **Photos** | Perceptual hashes (pHash and dHash) to catch photos reused under a different address or contact, even after resizing or recompressing | ✅ Live |
 | **Address** | Whether the address exists and appears to be listed for sale | 🔜 Planned |
 | **Contact** | Throwaway email domains and VoIP phone numbers | 🔜 Planned |
 
@@ -37,6 +37,7 @@ flowchart LR
     api --> checks[Detection checks<br/>price, text]
     checks --> scoring[Scoring engine<br/>weights.yaml]
     api --> rents[(HUD market rents<br/>193,005 rows)]
+    api -- "least-privilege role" --> db[(Supabase Postgres<br/>hashes, results)]
     secrets[(Secret Manager)] -. injected at runtime .-> api
 ```
 
@@ -62,7 +63,9 @@ The backend is built in clear layers, so each part can change or be tested on it
 - **No secrets in code or images:** local secrets live in an ignored `.env`; production secrets come from Google Secret Manager at runtime.
 - **Least-privilege identities:** the API runs as its own service account that can read exactly one secret. CI/CD deploys through Workload Identity Federation, with short-lived tokens and no stored keys, trusted only for this repo's `master` branch.
 - **Hardened container:** multi-stage build, non-root user, no build tools in the final image.
-- **Privacy by design (database schema):** contact info is stored only as keyed HMAC-SHA256 hashes, photos only as perceptual hashes, only the domain of a listing URL is kept, and listings are purged after 180 days. Row Level Security is enabled on every table.
+- **Untrusted uploads:** photo type is detected from the file's bytes (never its name), size and pixel limits are enforced before decoding to block decompression bombs, and malformed images are rejected. Photos are hashed and discarded; only fingerprints are stored.
+- **Privacy by design:** phone numbers and emails are removed from stored text and kept only as keyed HMAC-SHA256 hashes (key in Secret Manager), which still allows cross-listing matching. Photo-match explanations never reveal another listing's address or contacts. Listings are purged after 180 days.
+- **Least-privilege database access:** the API logs in as a role that can only insert and read, never update or delete, so a leaked credential can't alter or erase results. Row Level Security is enabled on every table.
 
 ## Tech stack
 
@@ -72,7 +75,7 @@ The backend is built in clear layers, so each part can change or be tested on it
 | Backend | Python, FastAPI, Pydantic, uv |
 | Data | HUD Small Area Fair Market Rents, Postgres via Supabase (schema in place) |
 | Infrastructure | Docker, Google Cloud Run, Artifact Registry, Secret Manager, Vercel |
-| Quality | pytest (150+ tests), ESLint, TypeScript strict mode, GitHub Actions |
+| Quality | pytest (200+ unit and real-Postgres tests), ESLint, TypeScript strict mode, GitHub Actions |
 
 ## Data pipeline
 
@@ -122,7 +125,7 @@ GitHub signs in to Google Cloud through **Workload Identity Federation**: each r
 3. ~~Price check and text check~~
 4. ~~Scoring engine and results page~~
 5. ~~CI, deployment, working MVP~~
-6. Photo hashing and duplicate detection
+6. ~~Photo hashing and duplicate detection~~
 7. Address and contact checks
 8. Labeled test set and accuracy evaluation
 9. Chrome extension that checks the listing you are viewing (no bulk scraping)

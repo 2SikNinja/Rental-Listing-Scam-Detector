@@ -19,6 +19,7 @@ signalTips: dict[str, str] = {
     "PEER_TO_PEER_PAYMENT": "If you use an app like Zelle, only pay after signing a lease with a verified owner, since payments cannot be reversed.",
     "OFF_PLATFORM_CONTACT": "Keep conversations on the listing site, where fraud reporting and records are available.",
     "PERSONAL_INFO_REQUEST": "Share your Social Security number or bank details only on a formal application after you have toured the unit.",
+    "PHOTO_REUSED_ELSEWHERE": "Run the photos through a reverse image search (Google Lens or TinEye) to see where else they appear.",
     "URGENCY_PRESSURE": "Take your time. Pressure to decide quickly is meant to stop you from checking details.",
 }
 

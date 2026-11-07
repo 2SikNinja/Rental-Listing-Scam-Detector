@@ -17,6 +17,7 @@ import { useState, type FormEvent } from "react";
 import { analyzeListing, ApiError } from "@/lib/apiClient";
 import type { AnalysisResult, FieldError, ListingSubmission } from "@/lib/types";
 
+import PhotoPicker from "./PhotoPicker";
 import ResultPanel from "./ResultPanel";
 
 interface FormValues {
@@ -92,6 +93,7 @@ export default function ListingForm() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<FieldError[]>([]);
   const [result, setResult] = useState<AnalysisResult | null>(null);
+  const [photos, setPhotos] = useState<File[]>([]);
 
   function updateField(fieldName: keyof FormValues, newValue: string) {
     setFormValues((previousValues) => ({ ...previousValues, [fieldName]: newValue }));
@@ -105,7 +107,7 @@ export default function ListingForm() {
     setResult(null);
 
     try {
-      const analysisResult = await analyzeListing(buildSubmission(formValues));
+      const analysisResult = await analyzeListing(buildSubmission(formValues), photos);
       setResult(analysisResult);
     } catch (caughtError) {
       if (caughtError instanceof ApiError) {
@@ -121,6 +123,7 @@ export default function ListingForm() {
 
   function handleReset() {
     setFormValues(emptyFormValues);
+    setPhotos([]);
     setErrorMessage(null);
     setFieldErrors([]);
     setResult(null);
@@ -167,6 +170,11 @@ export default function ListingForm() {
                 value={formValues.bathrooms} onChange={(changeEvent) => updateField("bathrooms", changeEvent.target.value)} />
             </div>
           </div>
+        </fieldset>
+
+        <fieldset className="flex flex-col gap-4">
+          <legend className="mb-2 text-lg font-semibold">Photos</legend>
+          <PhotoPicker photos={photos} onPhotosChange={setPhotos} />
         </fieldset>
 
         <fieldset className="flex flex-col gap-4">

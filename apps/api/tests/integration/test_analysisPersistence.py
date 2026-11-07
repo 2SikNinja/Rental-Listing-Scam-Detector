@@ -129,3 +129,43 @@ def testDatabaseFailureStillReturnsResult():
         brokenPool.close()
     assert response.status_code == 200
     assert response.json()["saved"] is False
+
+
+# ---------------------------------------------------------------------
+# Photo reuse across listings (real bit_count matching in Postgres)
+# ---------------------------------------------------------------------
+import json  # noqa: E402
+
+from tests.imageFactory import imageToBytes, makeScene  # noqa: E402
+
+uniqueSeed = uuid.uuid4().int % 1_000_000  # fresh "room" each test run, so old rows don't interfere
+
+
+def uploadWithPhoto(listing: dict, photoBytes: bytes):
+    return client.post("/analyze/upload", data={"listing": json.dumps(listing)},
+                       files=[("photos", ("room.jpg", photoBytes, "image/jpeg"))]).json()
+
+
+def testReusedPhotoUnderDifferentZipIsFlagged():
+    roomPhoto = makeScene(uniqueSeed)
+    firstListing = {**scamListing, "address": {"zipCode": "91101"}}
+    firstBody = uploadWithPhoto(firstListing, imageToBytes(roomPhoto, "JPEG", quality=95))
+    assert firstBody["saved"] is True
+    assert "photo" in firstBody["checksRun"]
+    assert not any(signal["checkName"] == "photo" for signal in firstBody["signals"])
+
+    # Same room, re-saved smaller (different bytes), posted in another ZIP with another phone
+    copiedListing = {**scamListing, "title": "Updated 2BR", "address": {"zipCode": "94063"},
+                     "contact": {"phone": "415-555-0199"}, "description": "Lovely apartment, recently updated."}
+    secondBody = uploadWithPhoto(copiedListing, imageToBytes(roomPhoto.resize((400, 300)), "JPEG", quality=60))
+    photoSignals = [signal for signal in secondBody["signals"] if signal["checkName"] == "photo"]
+    assert photoSignals[0]["signalCode"] == "PHOTO_REUSED_ELSEWHERE"
+    assert set(photoSignals[0]["evidence"]["differences"]) == {"a different ZIP code", "different contact details"}
+
+
+def testPhotoHashesAreStoredButNotImages():
+    body = uploadWithPhoto(scamListing, imageToBytes(makeScene(uniqueSeed + 1), "JPEG"))
+    storedRows = fetchAll(
+        "select length(p.phash), length(p.dhash), p.width_px from public.listing_photos p "
+        "join public.analyses a on a.listing_id = p.listing_id where a.id = %s", (body["analysisId"],))
+    assert storedRows == [(64, 64, 800)]

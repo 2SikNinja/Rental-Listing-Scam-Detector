@@ -18,6 +18,7 @@ from psycopg.types.json import Jsonb
 from app.schemas.listing import ListingSubmission
 from app.scoring.engine import ScoreResult
 from app.security.privacy import RedactedListing
+from app.services.photoHashing import PhotoHashes
 
 
 def saveAnalysis(
@@ -27,6 +28,7 @@ def saveAnalysis(
     redactedListing: RedactedListing,
     scoreResult: ScoreResult,
     durationMs: int,
+    photoHashes: list[PhotoHashes] | None = None,
 ) -> uuid.UUID:
     """Insert everything for one analysis. Returns the new listing ID."""
     with connection.transaction(), connection.cursor() as cursor:
@@ -66,6 +68,20 @@ def saveAnalysis(
                 [
                     (listingId, contact.kind, contact.valueHmac, contact.emailDomain)
                     for contact in redactedListing.contacts
+                ],
+            )
+
+        if photoHashes:
+            # Only the hashes and dimensions are stored, never the image itself
+            cursor.executemany(
+                """
+                insert into public.listing_photos (listing_id, content_sha256, phash, dhash, width_px, height_px)
+                values (%s, %s, %s::bit(64), %s::bit(64), %s, %s)
+                on conflict (listing_id, content_sha256) do nothing
+                """,
+                [
+                    (listingId, photo.contentSha256, photo.pHashBits, photo.dHashBits, photo.widthPx, photo.heightPx)
+                    for photo in photoHashes
                 ],
             )
 

@@ -6,7 +6,7 @@
 # version that produced it, so old and new results can be compared.
 # =====================================================================
 
-version: "2026-11-03.2"
+version: "2026-11-07.1"
 
 # Base points for each signal, by severity
 severityPoints:
@@ -27,6 +27,9 @@ signalPointOverrides:
   # 30 to 50% below market is notable on its own, so it reaches the
   # "medium" line by itself instead of showing a red flag on a "low" result.
   RENT_BELOW_MARKET: 20
+  # The same photos posted under a different address or contact is one
+  # of the clearest signs of a copied listing.
+  PHOTO_REUSED_ELSEWHERE: 40
 
 # Upper limit on points from any single check. Without this, a listing
 # that repeats several scam phrases could reach "high" from wording

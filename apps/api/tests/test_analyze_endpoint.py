@@ -110,7 +110,7 @@ def testMissingPriceDataGivesInsufficientDataNotLow():
 
 def testFutureChecksExplainTheyAreNotAvailable():
     body = client.post("/analyze", json=validListing).json()
-    assert body["skipReasons"]["photo"] == "This check is not available yet."
+    assert body["skipReasons"]["address"] == "This check is not available yet."
 
 
 def testResponseIncludesScoringVersionAndThresholds():
@@ -157,3 +157,60 @@ def testCorsBlocksUnknownOrigin():
         headers={"Origin": "https://evil.example.com", "Access-Control-Request-Method": "POST"},
     )
     assert "access-control-allow-origin" not in response.headers
+
+
+# ---------------------------------------------------------------------
+# POST /analyze/upload (multipart: listing JSON + photos)
+# ---------------------------------------------------------------------
+import json  # noqa: E402
+
+from tests.imageFactory import sceneBytes  # noqa: E402
+
+
+def uploadListing(listing: dict, photoFiles: list[tuple[str, bytes, str]]):
+    return client.post(
+        "/analyze/upload",
+        data={"listing": json.dumps(listing)},
+        files=[("photos", photoFile) for photoFile in photoFiles],
+    )
+
+
+def testUploadWithPhotosWorksWithoutDatabase():
+    response = uploadListing(validListing, [("room.jpg", sceneBytes(1), "image/jpeg")])
+    assert response.status_code == 200
+    body = response.json()
+    assert "database" in body["skipReasons"]["photo"]  # no DB in unit tests, so the check says why
+
+
+def testUploadWithoutPhotosMatchesJsonEndpoint():
+    uploadBody = uploadListing(validListing, []).json()
+    jsonBody = client.post("/analyze", json=validListing).json()
+    assert uploadBody["riskLevel"] == jsonBody["riskLevel"]
+    assert uploadBody["skipReasons"]["photo"] == "No photos were uploaded."
+
+
+def testUploadRejectsNonImageWithFieldError():
+    response = uploadListing(validListing, [("notes.jpg", b"this is not an image at all" * 5, "image/jpeg")])
+    assert response.status_code == 422
+    error = response.json()["detail"][0]
+    assert error["loc"] == ["body", "photos", 0]
+    assert "notes.jpg" not in error["msg"]  # client-supplied file names are never echoed
+
+
+def testUploadRejectsTooManyPhotos():
+    tooMany = [(f"p{index}.jpg", sceneBytes(index), "image/jpeg") for index in range(11)]
+    response = uploadListing(validListing, tooMany)
+    assert response.status_code == 422
+    assert "at most" in response.json()["detail"][0]["msg"]
+
+
+def testUploadReportsListingErrorsWithSameFieldPaths():
+    response = uploadListing({**validListing, "address": {"zipCode": "123"}}, [])
+    assert response.status_code == 422
+    errorPaths = [".".join(map(str, error["loc"])) for error in response.json()["detail"]]
+    assert "body.address.zipCode" in errorPaths
+
+
+def testUploadRejectsMalformedListingJson():
+    response = client.post("/analyze/upload", data={"listing": "{not json"})
+    assert response.status_code == 422
