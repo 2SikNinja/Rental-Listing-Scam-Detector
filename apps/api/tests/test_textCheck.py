@@ -129,3 +129,57 @@ def testNormalizeTextHandlesCurlyQuotesAndSpacing():
 
 def testCurlyApostropheStillMatches():
     assert "CANNOT_SHOW_UNIT" in flaggedCodes("Sorry, I can’t show the apartment until next month.")
+
+
+# ---------------------------------------------------------------------
+# Rules added after the Step 8 evaluation (dev split findings)
+# ---------------------------------------------------------------------
+@pytest.mark.parametrize(
+    ("description", "expectedCode"),
+    [
+        ("The keys and the signed contract will be shipped overnight once paid.", "KEYS_MAILED"),
+        ("My spouse and I are missionaries serving abroad this year.", "OWNER_UNAVAILABLE"),
+        ("I work in Texas now so I cannot come by to show it.", "OWNER_UNAVAILABLE"),
+        ("Sorry, I can't meet you in person, I travel constantly.", "OWNER_UNAVAILABLE"),
+        ("A $400 deposit is needed to hold it for you until Friday.", "PAYMENT_BEFORE_VIEWING"),
+        ("Send half the deposit to take the unit off the market.", "PAYMENT_BEFORE_VIEWING"),
+        ("We list it publicly and it will remain on the market until the deposit funds clear.", "PAYMENT_BEFORE_VIEWING"),
+        ("Please wire the first month directly to my account.", "UNTRACEABLE_PAYMENT"),
+        ("We accept wire transfers for the security deposit.", "UNTRACEABLE_PAYMENT"),
+        ("Fees are paid through an international money transfer company.", "UNTRACEABLE_PAYMENT"),
+        ("You can send the deposit with Chime or Apple Pay.", "PEER_TO_PEER_PAYMENT"),
+        ("For pictures and the address, message me on Instagram.", "OFF_PLATFORM_CONTACT"),
+        ("I take care of everything over text, no need to call.", "OFF_PLATFORM_CONTACT"),
+    ],
+)
+def testRulesAddedFromEvaluation(description, expectedCode):
+    assert expectedCode in flaggedCodes(description)
+
+
+@pytest.mark.parametrize(
+    "warningText",
+    [
+        "We will never ask for wire transfers, gift cards, Bitcoin or Zelle.",
+        "Do not send Venmo, Cash App or Apple Pay payments to anyone claiming to be us.",
+    ],
+)
+def testNegatedListsAreNotFlagged(warningText):
+    assert flaggedCodes(warningText) == set()
+
+
+def testNegatedListDoesNotHideAFollowingRequest():
+    """The warning is ignored, but a separate payment request in the next sentence still counts."""
+    codes = flaggedCodes("We never accept gift cards or crypto. Send the deposit through Zelle today.")
+    assert "PEER_TO_PEER_PAYMENT" in codes
+    assert "UNTRACEABLE_PAYMENT" not in codes
+
+
+def testHoldingDepositAfterApprovalIsAKnownFalsePositive():
+    """
+    Documented limitation from the evaluation (legit-12): a legitimate
+    holding deposit after approval still matches. Kept as a test so any
+    future fix is noticed and the README limitation can be updated.
+    """
+    assert "PAYMENT_BEFORE_VIEWING" in flaggedCodes(
+        "After your application is approved, a holding deposit secures the unit."
+    )

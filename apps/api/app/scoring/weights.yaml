@@ -6,7 +6,8 @@
 # version that produced it, so old and new results can be compared.
 # =====================================================================
 
-version: "2026-11-07.2"
+# .3: text rules updated after the Step 8 evaluation (weights unchanged)
+version: "2026-11-07.3"
 
 # Base points for each signal, by severity
 severityPoints:

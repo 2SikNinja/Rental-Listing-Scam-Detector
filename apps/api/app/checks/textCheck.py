@@ -32,6 +32,10 @@ negationPattern = re.compile(
     r"\b(no|not|never|don'?t|do not|won'?t|will not|doesn'?t|does not|without|avoid|beware of)\b"
     r"(?:\W+\w+){0,4}\W*$"
 )
+negationWordPattern = re.compile(
+    r"\b(no|not|never|don'?t|do not|won'?t|will not|doesn'?t|does not|without|avoid|beware of)\b"
+)
+listSeparatorPattern = re.compile(r",|\bor\b|\band\b|\bnor\b")
 
 
 @dataclass(frozen=True)
@@ -59,7 +63,9 @@ textRules: tuple[TextRule, ...] = (
             r"\b(i am|i'm|we are|we're|owner is|landlord is|currently)\s+(living\s+|working\s+|staying\s+)?"
             r"(overseas|abroad|out of the country|out of state|out of town)\b",
             r"\b(moved|relocated|transferred)\s+(overseas|abroad|out of the country|for (a |my )?(new )?job)\b",
-            r"\b(missionary|mission trip|on a mission|deployed|military deployment|stationed (overseas|abroad))\b",
+            r"\b(missionar(y|ies)|mission trip|on a mission|deployed|military deployment|stationed (overseas|abroad))\b",
+            r"\b(can'?t|cannot|can not|unable to|won'?t be able to|not able to)\s+meet( you| with you| in person)?\b",
+            r"\bi (live|am|'m|work) (in|out of)\b[^.!?\n]{1,30}\bso\b[^.!?\n]{0,20}\b(can'?t|cannot|unable)\b",
         ),
     ),
     TextRule(
@@ -85,6 +91,7 @@ textRules: tuple[TextRule, ...] = (
             "unit they do not control and never meet you."
         ),
         patterns=compileAll(
+            r"\bkeys?\b(?:\W+\w+){0,6}?\W+(will be|would be|can be|to be|are|is|get)\s+(mailed|shipped|couriered|posted|fedexed)\b",
             r"\bkeys?\s+(will be|would be|can be|to be|are|is)?\s*(mailed|shipped|sent|couriered|posted|delivered)\b",
             r"\b(mail|ship|send|courier|post|deliver)\s+(you\s+)?(the\s+)?keys?\b",
         ),
@@ -102,6 +109,9 @@ textRules: tuple[TextRule, ...] = (
             r"\b(send|pay|wire|transfer)\b[^.!?\n]{0,40}\b(deposit|payment|fee|first month)\b[^.!?\n]{0,40}"
             r"\bto\s+(hold|reserve|secure|lock in)\b",
             r"\b(holding|reservation)\s+(fee|deposit)\b",
+            r"\b(deposit|fee|first month'?s?( rent)?)\b[^.!?\n]{0,40}\bto\s+(hold|reserve|secure|lock in)\s+(it|the|this|your)\b",
+            r"\btake (it|the (house|home|unit|apartment|property)) off the market\b",
+            r"\bremain on the market until\b[^.!?\n]{0,30}\b(funds|payment|deposit)\b",
         ),
     ),
     TextRule(
@@ -112,7 +122,9 @@ textRules: tuple[TextRule, ...] = (
             "cryptocurrency. This money is very hard to trace or get back."
         ),
         patterns=compileAll(
-            r"\bwire(d)?\s+(transfer|the money|the deposit|payment|funds)\b",
+            r"\bwire(d)?\s+(transfers?|the money|the deposit|payments?|funds)\b",
+            r"\bwire\b[^.!?\n]{0,30}\b(rent|deposit|first month|last month)\b",
+            r"\b(international money transfer|money transfer service|remitly|worldremit)\b",
             r"\b(western union|moneygram|money gram|gift ?cards?|itunes cards?|google play cards?|steam cards?)\b",
             r"\b(bitcoin|btc|crypto(currency)?|usdt|tether|ethereum)\b",
             r"\bpaypal\s+(friends|f&f)\b",
@@ -125,7 +137,7 @@ textRules: tuple[TextRule, ...] = (
             "The listing asks for payment through an instant app like Zelle, Venmo, or Cash App. Some real "
             "landlords use these, but payments usually cannot be reversed, so scammers prefer them."
         ),
-        patterns=compileAll(r"\b(zelle|venmo|cash ?app|cashapp|apple cash)\b"),
+        patterns=compileAll(r"\b(zelle|venmo|cash ?app|cashapp|apple cash|apple pay|chime)\b"),
     ),
     TextRule(
         signalCode="OFF_PLATFORM_CONTACT",
@@ -138,6 +150,8 @@ textRules: tuple[TextRule, ...] = (
             r"\b(whatsapp|telegram|signal app|wechat|google voice)\b",
             r"\b(text|email|e-mail|contact|reach)\s+me\s+(only\s+)?(directly|privately|at|on|via)\b",
             r"\b(only|just)\s+(contact|reach|text|email)\s+(me\s+)?(by|via|through|on)\b",
+            r"\b(message|dm|contact)\s+(me|this page|us)\s+on\s+(facebook|instagram|tiktok)\b",
+            r"\beverything (by|over|through) (email|text)\b",
         ),
         allowNegation=False,
     ),
@@ -176,12 +190,30 @@ def normalizeText(rawText: str) -> str:
 
 
 def isNegated(normalizedText: str, matchStart: int) -> bool:
-    """True if a negation word appears in the few words before the match."""
-    precedingText = normalizedText[max(0, matchStart - 40):matchStart]
+    """
+    True if the match is being ruled out rather than requested:
+      - a negation word in the few words before it ("no wire transfers"), or
+      - the match is part of a short list that follows a negation
+        ("we never ask for wire transfers, gift cards or zelle").
+    Only the current sentence is considered.
+    """
+    precedingText = normalizedText[max(0, matchStart - 100):matchStart]
     sentenceStart = max(precedingText.rfind("."), precedingText.rfind("!"), precedingText.rfind("?"))
     if sentenceStart != -1:
         precedingText = precedingText[sentenceStart + 1:]
-    return negationPattern.search(precedingText) is not None
+    if negationPattern.search(precedingText):
+        return True
+
+    negationMatches = list(negationWordPattern.finditer(precedingText))
+    if not negationMatches:
+        return False
+    textAfterNegation = precedingText[negationMatches[-1].end():]
+    listItems = listSeparatorPattern.split(textAfterNegation)
+    return (
+        len(listItems) >= 2
+        and len(textAfterNegation.split()) <= 12
+        and all(len(listItem.split()) <= 4 for listItem in listItems)
+    )
 
 
 def findRuleMatches(rule: TextRule, normalizedText: str) -> list[str]:

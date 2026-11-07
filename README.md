@@ -115,11 +115,15 @@ Every push and pull request runs three jobs in GitHub Actions: the API test suit
 
 GitHub signs in to Google Cloud through **Workload Identity Federation**: each run exchanges a GitHub-signed identity token for a Google credential that expires in about an hour, and Google only accepts tokens from this repository's `master` branch. No cloud keys are stored in GitHub. The one-time setup is in [`scripts/setupGithubDeploy.ps1`](scripts/setupGithubDeploy.ps1).
 
+## Evaluation
+
+Measured on a labeled set of 37 listings (15 reconstructed from cited 2025 to 2026 scam reports, 22 legitimate including deliberately hard cases), with a dev/test split so tuning never touched the test data. On the held-out test split, the detector caught **7 of 8 scams (88%, 95% CI 53% to 98%)** with **2 false alarms out of 11** honest listings, up from 5 of 8 before tuning with no added false alarms. The evaluation runs in CI as a regression guardrail. Full methodology, error analysis, and limitations: [`eval/README.md`](eval/README.md).
+
 ## Limitations
 
 - **Text rules miss reworded scams.** Testing against October 2026 news reports showed that modern scams (self-tour links, staged small fees, social media pages) often avoid classic wording. The price check holds up better because a low price is the lure itself. An optional LLM pass is planned for rephrased text.
 - **HUD rents are yearly estimates near the 40th percentile** for standard units, so the price check only flags large gaps to avoid penalizing honest good deals. Some rural ZIP codes have no data, and the check reports that instead of guessing.
-- **Weights are not yet tuned on labeled data.** A labeled evaluation set (precision and recall on real scam and legitimate listings) is the next major milestone, and results will be reported honestly given its small size.
+- **The evaluation set is small** (37 listings), so its numbers are directional. See [`eval/README.md`](eval/README.md) for the full list of caveats.
 - **The rate limiter is per instance.** Counts live in memory, so each Cloud Run instance keeps its own. A shared store or Cloud Armor would make the limit global.
 
 ## Roadmap
@@ -131,7 +135,7 @@ GitHub signs in to Google Cloud through **Workload Identity Federation**: each r
 5. ~~CI, deployment, working MVP~~
 6. ~~Photo hashing and duplicate detection~~
 7. ~~Address and contact checks~~
-8. Labeled test set and accuracy evaluation
+8. ~~Labeled test set and accuracy evaluation~~
 9. Chrome extension that checks the listing you are viewing (no bulk scraping)
 10. Analytics on common scam patterns by area
 
