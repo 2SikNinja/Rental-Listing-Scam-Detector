@@ -8,6 +8,16 @@ Paste a rental listing and get a **risk assessment** (Low, Medium, or High) with
 
 > Results are a risk assessment, not a verdict. A high score means a listing shares patterns with known scams. A low score never guarantees a listing is legitimate.
 
+## Demo
+
+![Pasting a scam listing and getting a High risk result](docs/images/demo.gif)
+
+| A scam listing | An honest listing |
+|---|---|
+| ![High risk result with photo, price, and wording red flags](docs/images/resultHighRisk.png) | ![Low risk result with no red flags](docs/images/resultLowRisk.png) |
+
+The scam listing reuses a photo from an earlier listing at a different address, asks about half the typical rent for the ZIP code, and says the owner is overseas and will mail the keys. Each flag shows the evidence behind it. (Sample listings and room photos are made up for the demo.)
+
 ---
 
 ## Why this exists
