@@ -20,6 +20,16 @@ export function extractListing() {
     return (value || "").replace(/\s+/g, " ").trim();
   }
 
+  // textContent glues separate blocks together ("CA 90042" + "Discover" -> "90042Discover").
+  // Adding a line break after each block-level element keeps them apart.
+  function blockAwareText(element) {
+    const copy = element.cloneNode(true);
+    copy.querySelectorAll("br").forEach((lineBreak) => lineBreak.replaceWith("\n"));
+    copy.querySelectorAll("p, div, li, h1, h2, h3, h4, h5, h6, section, article, tr, blockquote")
+      .forEach((block) => block.append("\n"));
+    return cleanText(copy.textContent);
+  }
+
   function textOf(selector) {
     const element = document.querySelector(selector);
     return element ? cleanText(element.textContent) : "";
@@ -101,8 +111,7 @@ export function extractListing() {
   function largestTextBlock() {
     let bestText = "";
     for (const element of document.querySelectorAll("article, main, section, div, p")) {
-      // Only count text directly in this element's own paragraphs, not its whole subtree twice
-      const blockText = cleanText(element.innerText || element.textContent);
+      const blockText = blockAwareText(element);
       if (blockText.length > bestText.length && blockText.length < 30000 && element.children.length < 40) {
         bestText = blockText;
       }
@@ -127,7 +136,7 @@ export function extractListing() {
     bodyElement.querySelectorAll(".print-information, .print-qrcode-container").forEach((node) => node.remove());
     const housingText = textOf(".housing");
     result.title = textOf("#titletextonly");
-    result.description = cleanText(bodyElement.textContent);
+    result.description = blockAwareText(bodyElement);
     result.monthlyRent = parseMoney(textOf(".postingtitletext .price") || textOf(".price"));
     result.bedrooms = parseBedrooms(housingText);
     const mapAddress = textOf(".mapaddress");

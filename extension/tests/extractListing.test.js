@@ -36,6 +36,12 @@ test("reads a Craigslist post using its page layout", () => {
   assert.match(listing.description, /keys will be mailed/);
 });
 
+test("keeps separate lines of the post apart instead of gluing words together", () => {
+  const listing = extractFrom("craigslistListing.html");
+  assert.match(listing.description, /CA 90042 Discover your new home\. Line one Line two/);
+  assert.doesNotMatch(listing.description, /90042Discover|oneLine/);
+});
+
 test("removes Craigslist's QR code text from the description", () => {
   const listing = extractFrom("craigslistListing.html");
   assert.doesNotMatch(listing.description, /QR Code/);
