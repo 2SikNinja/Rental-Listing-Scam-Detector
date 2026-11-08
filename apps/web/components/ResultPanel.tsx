@@ -80,7 +80,11 @@ export default function ResultPanel({ result }: { result: AnalysisResult }) {
                     {signal.severity}
                   </span>
                   <span className="text-xs uppercase tracking-wide text-zinc-500">{signal.checkName} check</span>
-                  <span className="ml-auto text-xs text-zinc-500">+{signal.points} pts</span>
+                  <span className="ml-auto text-xs text-zinc-500">
+                    {signal.points === 0 && signal.severity !== "info"
+                      ? `+0 pts (${signal.checkName} check's point limit already reached)`
+                      : `+${signal.points} pts`}
+                  </span>
                 </div>
                 <p className="mt-2 text-sm">{signal.explanation}</p>
                 {getMatchedPhrases(signal.evidence).length > 0 && (
