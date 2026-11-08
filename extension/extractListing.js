@@ -69,6 +69,35 @@ export function extractListing() {
     };
   }
 
+  const usStateCodes = new Set(("AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE " +
+    "NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY").split(" "));
+
+  // Fills in only the parts that are still empty, from text like
+  // "101 Main St, Los Angeles, CA 90042" or "Pasadena, CA". The two letters
+  // must be a real state code, so text like "Unit, OK" isn't mistaken for one.
+  function fillMissingAddressParts(address, text) {
+    const cityStatePattern = /([A-Z][A-Za-z .'-]{1,38}),\s*([A-Z]{2})\b(?:\s+(\d{5})(?:-\d{4})?)?/g;
+    const validMatches = [...text.matchAll(cityStatePattern)].filter((match) => usStateCodes.has(match[2]));
+    // A match with a ZIP code is far more likely to be a real address than
+    // "Corner unit, OK condition" (OK is also Oklahoma), so those win.
+    const orderedMatches = [
+      ...validMatches.filter((match) => match[3]),
+      ...validMatches.filter((match) => !match[3]),
+    ];
+    for (const match of orderedMatches) {
+      const filledAddress = { ...address };
+      filledAddress.city = filledAddress.city || cleanText(match[1]);
+      filledAddress.stateCode = filledAddress.stateCode || match[2];
+      filledAddress.zipCode = filledAddress.zipCode || match[3] || "";
+      if (!filledAddress.street) {
+        const streetBefore = text.slice(0, match.index).match(/(\d{1,6}\s+[^,\n]{3,60}),\s*$/);
+        filledAddress.street = streetBefore ? cleanText(streetBefore[1]) : "";
+      }
+      return filledAddress;
+    }
+    return address;
+  }
+
   function findJsonLdListing() {
     const scriptElements = document.querySelectorAll('script[type="application/ld+json"]');
     for (const scriptElement of scriptElements) {
@@ -148,6 +177,7 @@ export function extractListing() {
         result.address.street = mapAddress;
       }
     }
+    result.address = fillMissingAddressParts(result.address, `${result.title}\n${result.description}`);
     result.method = "craigslist";
   } else {
     // 2. Structured data
@@ -174,10 +204,7 @@ export function extractListing() {
     const searchableText = `${result.title} ${result.description}`;
     result.monthlyRent = result.monthlyRent ?? parseMoney((searchableText.match(/\$\s?\d[\d,]{2,6}(?:\s*\/\s*(?:mo|month))?/i) || [""])[0]);
     result.bedrooms = result.bedrooms ?? parseBedrooms(searchableText);
-    if (!result.address.zipCode) {
-      const foundAddress = parseAddress((searchableText.match(/\d{1,6}\s+[^,\n]{3,60},\s*[A-Za-z .'-]{2,40},\s*[A-Z]{2}\s*\d{5}/) || [""])[0]);
-      result.address = { ...result.address, ...Object.fromEntries(Object.entries(foundAddress).filter(([, value]) => value)) };
-    }
+    result.address = fillMissingAddressParts(result.address, searchableText);
   }
 
   result.description = result.description.slice(0, maxDescriptionLength);

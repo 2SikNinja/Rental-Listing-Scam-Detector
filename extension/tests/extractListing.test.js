@@ -36,6 +36,16 @@ test("reads a Craigslist post using its page layout", () => {
   assert.match(listing.description, /keys will be mailed/);
 });
 
+test("fills city, state, and ZIP from the post when the map only shows the street", () => {
+  const listing = extractFrom("craigslistListing.html");
+  assert.deepEqual(listing.address, {
+    street: "412 Example Ave",   // from the map box, not overwritten
+    city: "Los Angeles",
+    stateCode: "CA",
+    zipCode: "90042",
+  });
+});
+
 test("keeps separate lines of the post apart instead of gluing words together", () => {
   const listing = extractFrom("craigslistListing.html");
   assert.match(listing.description, /CA 90042 Discover your new home\. Line one Line two/);
@@ -71,6 +81,24 @@ test("falls back to visible text on a plain page", () => {
   assert.equal(listing.address.stateCode, "KS");
   assert.match(listing.description, /Cash App/);
   assert.doesNotMatch(listing.description, /Copyright/); // picks the post, not the whole page
+});
+
+test("prefers a real address with a ZIP over look-alike text such as 'unit, OK condition'", () => {
+  const pageDom = new JSDOM(
+    "<html><body><div><p>Corner unit, OK condition, in Springfield, MO 65806 near the park and shops downtown.</p></div></body></html>",
+    { url: "https://example.org/" },
+  );
+  globalThis.document = pageDom.window.document;
+  globalThis.location = pageDom.window.location;
+  try {
+    const listing = extractListing();
+    assert.equal(listing.address.stateCode, "MO");   // not "OK" from "Corner unit, OK condition"
+    assert.equal(listing.address.zipCode, "65806");
+    assert.equal(listing.address.city, "Springfield");
+  } finally {
+    delete globalThis.document;
+    delete globalThis.location;
+  }
 });
 
 test("never returns more description than the API accepts", () => {
