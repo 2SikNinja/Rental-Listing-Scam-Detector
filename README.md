@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/2SikNinja/Rental-Listing-Scam-Detector/actions/workflows/ci.yml/badge.svg)](https://github.com/2SikNinja/Rental-Listing-Scam-Detector/actions/workflows/ci.yml)
 
-**Live demo:** [rental-scam-detector-virid.vercel.app](https://rental-scam-detector-virid.vercel.app)
+**Live demo:** [rentcheck.ppeternnguyen.com](https://rentcheck.ppeternnguyen.com/)
 
 Paste a rental listing and get a **risk assessment** (Low, Medium, or High) with a plain-English explanation of every red flag, the exact words or numbers that triggered it, and safety tips matched to what was found.
 
