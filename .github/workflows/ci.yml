@@ -55,6 +55,7 @@ jobs:
     env:
       PGPASSWORD: ci-only-password
       TEST_API_DATABASE_URL: postgresql://scam_api:ci-api-password@localhost:5432/scamtest
+      TEST_RETENTION_DATABASE_URL: postgresql://retention_job:ci-retention-password@localhost:5432/scamtest
     steps:
       - uses: actions/checkout@v4
 
@@ -79,6 +80,7 @@ jobs:
             psql "$adminUrl" -q -v ON_ERROR_STOP=1 -f "$migrationFile"
           done
           psql "$adminUrl" -q -c "alter role scam_api with login password 'ci-api-password'"
+          psql "$adminUrl" -q -c "alter role retention_job with login password 'ci-retention-password'"
 
       - name: Run tests (unit and database integration)
         run: uv run pytest -q
