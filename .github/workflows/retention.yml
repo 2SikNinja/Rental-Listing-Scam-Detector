@@ -1,0 +1,71 @@
+# =====================================================================
+# Daily data retention job
+#
+# Once a day, deletes stored listings older than their 180-day
+# purge_after date by calling public.purge_expired_listings().
+#
+# It connects as "retention_job", a database role that can run that one
+# function and nothing else (see the 20261121 migration).
+#
+# Side benefit: Supabase's free plan pauses a project after about a week
+# with too little database activity. A real query every day keeps the
+# production database awake.
+#
+# Setup: save the role's connection string (Supavisor session pooler) as
+# the repository secret RETENTION_DATABASE_URL. Until then, the job
+# skips instead of failing.
+#
+# Note: GitHub turns off scheduled workflows in a repository with no
+# activity for 60 days, and emails a warning first. Re-enable it from the
+# Actions tab if that happens.
+# =====================================================================
+
+name: Daily retention
+
+on:
+  schedule:
+    # 11:17 UTC is 3:17 AM Pacific. Off the hour, because GitHub delays
+    # jobs scheduled at :00 when many run at once.
+    - cron: "17 11 * * *"
+  workflow_dispatch: # also allows a manual run from the Actions tab
+
+permissions:
+  contents: read
+
+concurrency:
+  group: retention
+  cancel-in-progress: false
+
+jobs:
+  purge:
+    name: Purge expired listings
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      RETENTION_DATABASE_URL: ${{ secrets.RETENTION_DATABASE_URL }}
+    steps:
+      - name: Check the secret is set
+        id: secretCheck
+        run: |
+          if [ -z "$RETENTION_DATABASE_URL" ]; then
+            echo "RETENTION_DATABASE_URL is not set, so there is nothing to do."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run the purge
+        if: steps.secretCheck.outputs.configured == 'true'
+        # Retries handle a brief network or pooler hiccup. ON_ERROR_STOP
+        # makes psql fail the step if the query fails.
+        run: |
+          for attempt in 1 2 3; do
+            if deletedCount=$(psql "$RETENTION_DATABASE_URL" -v ON_ERROR_STOP=1 -tAc "select public.purge_expired_listings();"); then
+              echo "Deleted $deletedCount expired listing(s)."
+              exit 0
+            fi
+            echo "Attempt $attempt failed, retrying in 30 seconds."
+            sleep 30
+          done
+          echo "The purge failed 3 times."
+          exit 1
